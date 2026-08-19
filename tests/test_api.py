@@ -79,6 +79,19 @@ class TestFoodLabAPI(unittest.TestCase):
         logged_in = self.client.post("/api/auth/login", json={"identity": "new-name", "password": "newsecret"})
         self.assertEqual(logged_in.status_code, 200)
 
+    def test_categories_and_admin_management(self):
+        categories = self.client.get("/api/categories").get_json()["items"]
+        self.assertEqual([item["name"] for item in categories[:4]], ["中餐", "西餐", "日料", "韩餐"])
+        login = self.client.post("/api/auth/login", json={"identity": "admin@foodlab.local", "password": "FoodLab-admin-123"})
+        self.assertEqual(login.status_code, 200)
+        headers = {"X-CSRF-Token": self.csrf()}
+        self.assertEqual(self.client.get("/api/admin/stats").status_code, 200)
+        self.assertEqual(self.client.get("/api/admin/users").status_code, 200)
+        created = self.client.post("/api/admin/categories", json={"name": "测试分类", "slug": "test-category"}, headers=headers)
+        self.assertEqual(created.status_code, 201)
+        category_id = created.get_json()["data"]["id"]
+        self.assertEqual(self.client.delete(f"/api/admin/categories/{category_id}", headers=headers).status_code, 200)
+
 
 if __name__ == "__main__":
     unittest.main()

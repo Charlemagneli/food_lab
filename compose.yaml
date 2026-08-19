@@ -7,10 +7,17 @@ services:
     volumes:
       - foodlab-data:/app/instance
       - foodlab-uploads:/app/frontend/images/uploads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
   nginx:
     image: nginx:1.27-alpine
-    depends_on: [api]
+    depends_on:
+      api:
+        condition: service_healthy
     ports: ["80:80"]
     volumes:
       - ./frontend:/usr/share/nginx/html:ro

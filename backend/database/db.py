@@ -95,9 +95,12 @@ def init_db(path):
 
 
 def seed(db):
-    categories = [("中餐", "chinese"), ("西餐", "western"), ("日料", "japanese"),
-                  ("韩餐", "korean"), ("甜品", "dessert"), ("饮料", "drinks"),
-                  ("早餐", "breakfast"), ("汤", "soup")]
+    categories = [
+        ("中餐", "chinese"), ("西餐", "western"), ("日料", "japanese"),
+        ("韩餐", "korean"), ("东南亚", "southeast-asian"), ("甜品", "dessert"),
+        ("饮料", "drinks"), ("早餐", "breakfast"), ("汤", "soup"),
+        ("主食", "staple"), ("小吃", "snack")
+    ]
     db.executemany("INSERT OR IGNORE INTO categories(name, slug) VALUES (?, ?)", categories)
     from werkzeug.security import generate_password_hash
     admin_hash = generate_password_hash("FoodLab-admin-123")
