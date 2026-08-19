@@ -1,0 +1,1 @@
+"""FoodLab backend package."""

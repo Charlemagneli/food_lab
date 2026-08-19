@@ -1,0 +1,1 @@
+document.addEventListener('DOMContentLoaded',async()=>{try{const d=await FoodLab.api('/api/users/me/favorites');document.querySelector('#recipe-grid').innerHTML=d.items.length?d.items.map(FoodLab.renderCard).join(''):'<div class="empty">登录后收藏喜欢的菜谱，它们会出现在这里。</div>'}catch(e){FoodLab.toast(e.message);setTimeout(()=>location.href='/login.html',700)}});

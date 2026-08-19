@@ -1,1 +1,6 @@
 .venv/
+.env
+instance/
+frontend/images/uploads/
+__pycache__/
+*.py[cod]

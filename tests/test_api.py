@@ -1,0 +1,84 @@
+import tempfile
+import unittest
+from pathlib import Path
+
+from backend.app import create_app
+
+
+class TestFoodLabAPI(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(self.tmp.name)
+
+        class TestConfig:
+            SECRET_KEY = "test-secret"
+            DATABASE_PATH = str(base / "foodlab.sqlite3")
+            UPLOAD_FOLDER = str(base / "uploads")
+            MAX_CONTENT_LENGTH = 8 * 1024 * 1024
+            SESSION_COOKIE_HTTPONLY = True
+            SESSION_COOKIE_SAMESITE = "Lax"
+            SESSION_COOKIE_SECURE = False
+
+        self.app = create_app(TestConfig)
+        self.app.testing = True
+        self.client = self.app.test_client()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def csrf(self):
+        return self.client.get("/api/auth/csrf").get_json()["csrf_token"]
+
+    def register(self, username="alice"):
+        response = self.client.post("/api/auth/register", json={"username": username, "email": f"{username}@example.com", "password": "secret1"})
+        self.assertEqual(response.status_code, 201)
+        return response.get_json()
+
+    def test_public_browse_and_search(self):
+        self.assertEqual(self.client.get("/api/health").status_code, 200)
+        response = self.client.get("/api/recipes?q=番茄")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["items"][0]["title"], "番茄炒蛋")
+        detail = self.client.get("/api/recipes/1")
+        self.assertEqual(detail.status_code, 200)
+        self.assertTrue(detail.get_json()["data"]["ingredients"])
+
+    def test_auth_and_social_toggle(self):
+        self.register()
+        token = self.csrf()
+        headers = {"X-CSRF-Token": token}
+        self.assertEqual(self.client.post("/api/recipes/1/like", headers=headers).status_code, 200)
+        self.assertEqual(self.client.post("/api/recipes/1/favorite", headers=headers).status_code, 200)
+        comment = self.client.post("/api/recipes/1/comments", json={"content": "很好吃！"}, headers=headers)
+        self.assertEqual(comment.status_code, 201)
+        self.assertEqual(self.client.get("/api/users/me/favorites").status_code, 200)
+
+    def test_recipe_creation_requires_auth_and_enters_pending(self):
+        response = self.client.post("/api/recipes", json={"title": "无权限"})
+        self.assertEqual(response.status_code, 401)
+        self.register("creator")
+        token = self.csrf()
+        response = self.client.post("/api/recipes", json={"title": "我的新菜", "description": "测试", "ingredients": [{"name": "土豆", "amount": "2", "unit": "个"}], "steps": [{"instruction": "切块"}], "tags": ["家常菜"]}, headers={"X-CSRF-Token": token})
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.get_json()["data"]["status"], "pending")
+        self.assertEqual(self.client.get("/api/recipes").get_json()["pagination"]["total"], 3)
+
+    def test_profile_and_password_settings(self):
+        self.register("settings-user")
+        token = self.csrf()
+        headers = {"X-CSRF-Token": token}
+        profile = self.client.patch("/api/users/me", json={"username": "new-name", "bio": "喜欢研究家常菜"}, headers=headers)
+        self.assertEqual(profile.status_code, 200)
+        self.assertEqual(profile.get_json()["user"]["bio"], "喜欢研究家常菜")
+        self.assertEqual(self.client.get("/api/users/me/recipes").status_code, 200)
+        wrong = self.client.post("/api/auth/change-password", json={"current_password": "wrong", "new_password": "newsecret", "confirm_password": "newsecret"}, headers=headers)
+        self.assertEqual(wrong.status_code, 400)
+        changed = self.client.post("/api/auth/change-password", json={"current_password": "secret1", "new_password": "newsecret", "confirm_password": "newsecret"}, headers=headers)
+        self.assertEqual(changed.status_code, 200)
+        self.client.post("/api/auth/logout", headers=headers)
+        logged_in = self.client.post("/api/auth/login", json={"identity": "new-name", "password": "newsecret"})
+        self.assertEqual(logged_in.status_code, 200)
+
+
+if __name__ == "__main__":
+    unittest.main()
