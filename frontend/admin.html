@@ -1,1 +1,43 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>后台 · 食研所</title><link rel="stylesheet" href="/css/style.css"></head><body><div id="site-header"></div><main class="section container"><div class="panel admin-empty"><span class="eyebrow">FoodLab control room</span><h1>后台</h1><p class="muted">管理员入口已保留。个人主页、我的菜谱和账户设置请从右上角账户菜单进入。</p><div class="admin-text-actions"><a href="/settings.html">账户设置</a><button id="admin-logout" type="button">退出登录</button></div></div></main><div id="site-footer"></div><div id="toast" class="toast"></div><script src="/js/main.js"></script><script>document.addEventListener('DOMContentLoaded',()=>{document.querySelector('#admin-logout').onclick=async()=>{await FoodLab.api('/api/auth/logout',{method:'POST'});location.href='/login.html'}})</script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>后台 · 食研所</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/admin.css">
+</head>
+<body>
+  <div id="site-header"></div>
+  <main class="section container admin-console">
+    <header class="admin-console-hero">
+      <div>
+        <span class="eyebrow">FoodLab control room</span>
+        <h1>内容后台</h1>
+        <p>审核社区菜谱，维护公开内容，并为值得推荐的作品加上编辑精选标记。</p>
+      </div>
+      <span class="admin-console-mark" aria-hidden="true">✦</span>
+    </header>
+    <section id="admin-stats" class="admin-stat admin-stat-featured" aria-label="后台概览"></section>
+    <section class="panel admin-section">
+      <div class="admin-section-head">
+        <div>
+          <span class="eyebrow">Recipe moderation</span>
+          <h2>菜谱审核</h2>
+        </div>
+        <div class="admin-filter" role="tablist" aria-label="菜谱筛选">
+          <button class="active" data-status="pending" role="tab">待审核</button>
+          <button data-status="published" role="tab">已发布</button>
+          <button data-status="all" role="tab">全部</button>
+        </div>
+      </div>
+      <p class="muted admin-section-note">通过审核的菜谱才会出现在公开列表；编辑精选标记可随时添加或取消。</p>
+      <div id="admin-recipes" class="admin-review-list"></div>
+    </section>
+  </main>
+  <div id="site-footer"></div>
+  <div id="toast" class="toast"></div>
+  <script src="/js/main.js"></script>
+  <script src="/js/admin.js"></script>
+</body>
+</html>

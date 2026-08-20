@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS recipes (
  cover_image TEXT, author_id INTEGER NOT NULL, cuisine TEXT NOT NULL DEFAULT '', meal_type TEXT NOT NULL DEFAULT '',
  category_id INTEGER, difficulty TEXT NOT NULL DEFAULT '简单', prep_time INTEGER NOT NULL DEFAULT 0,
  cook_time INTEGER NOT NULL DEFAULT 0, servings REAL NOT NULL DEFAULT 2, status TEXT NOT NULL DEFAULT 'pending',
+ is_featured INTEGER NOT NULL DEFAULT 0,
  views_count INTEGER NOT NULL DEFAULT 0, likes_count INTEGER NOT NULL DEFAULT 0,
  favorites_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
  FOREIGN KEY(author_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -98,6 +99,9 @@ def init_db(path):
     columns = {row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()}
     if "interests" not in columns:
         db.execute("ALTER TABLE users ADD COLUMN interests TEXT NOT NULL DEFAULT ''")
+    recipe_columns = {row["name"] for row in db.execute("PRAGMA table_info(recipes)").fetchall()}
+    if "is_featured" not in recipe_columns:
+        db.execute("ALTER TABLE recipes ADD COLUMN is_featured INTEGER NOT NULL DEFAULT 0")
     seed(db)
     db.commit()
     db.close()
@@ -125,12 +129,12 @@ def seed(db):
     cat = db.execute("SELECT id FROM categories WHERE slug='chinese'").fetchone()[0]
     if not db.execute("SELECT 1 FROM recipes LIMIT 1").fetchone():
         recipes = [
-            ("番茄炒蛋", "酸甜开胃的家常快手菜，十分钟就能端上餐桌。", "", author, "中国菜", "晚餐", cat, "简单", 5, 10, 2, "published", 128, 24, 18),
-            ("香煎鸡胸肉沙拉", "清爽高蛋白的一人食，适合工作日的轻盈午餐。", "", author, "西餐", "午餐", None, "简单", 10, 15, 1, "published", 86, 19, 12),
-            ("南瓜奶油浓汤", "烤南瓜与奶油交织出的温暖滋味。", "", author, "西餐", "晚餐", None, "中等", 15, 25, 3, "published", 72, 16, 9),
+            ("番茄炒蛋", "酸甜开胃的家常快手菜，十分钟就能端上餐桌。", "", author, "中国菜", "晚餐", cat, "简单", 5, 10, 2, "published", 1, 128, 24, 18),
+            ("香煎鸡胸肉沙拉", "清爽高蛋白的一人食，适合工作日的轻盈午餐。", "", author, "西餐", "午餐", None, "简单", 10, 15, 1, "published", 0, 86, 19, 12),
+            ("南瓜奶油浓汤", "烤南瓜与奶油交织出的温暖滋味。", "", author, "西餐", "晚餐", None, "中等", 15, 25, 3, "published", 0, 72, 16, 9),
         ]
-        db.executemany("""INSERT INTO recipes(title,description,cover_image,author_id,cuisine,meal_type,category_id,difficulty,prep_time,cook_time,servings,status,views_count,likes_count,favorites_count,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?, ?)""", [r + (now_iso(), now_iso()) for r in recipes])
+        db.executemany("""INSERT INTO recipes(title,description,cover_image,author_id,cuisine,meal_type,category_id,difficulty,prep_time,cook_time,servings,status,is_featured,views_count,likes_count,favorites_count,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?, ?, ?)""", [r + (now_iso(), now_iso()) for r in recipes])
         for recipe in db.execute("SELECT id,title FROM recipes").fetchall():
             names = {"番茄炒蛋": [("鸡蛋", "3", "个"), ("番茄", "2", "个"), ("食用油", "适量", "")],
                      "香煎鸡胸肉沙拉": [("鸡胸肉", "1", "块"), ("生菜", "100", "克"), ("橄榄油", "1", "勺")],

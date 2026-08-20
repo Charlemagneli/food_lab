@@ -16,23 +16,57 @@ def guard():
 def stats():
     _, error = guard()
     if error: return error
-    db = connect(current_app.config["DATABASE_PATH"]); result = {"users": db.execute("SELECT count(*) FROM users").fetchone()[0], "recipes": db.execute("SELECT count(*) FROM recipes").fetchone()[0], "pending": db.execute("SELECT count(*) FROM recipes WHERE status='pending'").fetchone()[0], "comments": db.execute("SELECT count(*) FROM comments").fetchone()[0]}; db.close(); return jsonify(data=result)
+    db = connect(current_app.config["DATABASE_PATH"]); result = {"users": db.execute("SELECT count(*) FROM users").fetchone()[0], "recipes": db.execute("SELECT count(*) FROM recipes").fetchone()[0], "pending": db.execute("SELECT count(*) FROM recipes WHERE status='pending'").fetchone()[0], "featured": db.execute("SELECT count(*) FROM recipes WHERE is_featured=1 AND status='published'").fetchone()[0], "comments": db.execute("SELECT count(*) FROM comments").fetchone()[0]}; db.close(); return jsonify(data=result)
 
 
 @bp.get("/recipes")
 def pending_recipes():
     _, error = guard()
     if error: return error
-    db = connect(current_app.config["DATABASE_PATH"]); rows = [dict(x) for x in db.execute("SELECT r.id,r.title,r.description,r.status,r.created_at,u.username AS author FROM recipes r JOIN users u ON u.id=r.author_id ORDER BY r.updated_at DESC").fetchall()]; db.close(); return jsonify(items=rows)
+    status = request.args.get("status", "").strip()
+    params = []
+    where = ""
+    if status in {"draft", "pending", "published", "rejected"}:
+        where = " WHERE r.status=?"
+        params.append(status)
+    db = connect(current_app.config["DATABASE_PATH"])
+    rows = [dict(x) for x in db.execute(f"""SELECT r.id,r.title,r.description,r.cover_image,r.status,r.is_featured,
+        r.cuisine,r.meal_type,r.prep_time,r.cook_time,r.created_at,r.updated_at,u.username AS author
+        FROM recipes r JOIN users u ON u.id=r.author_id{where} ORDER BY
+        CASE r.status WHEN 'pending' THEN 0 WHEN 'published' THEN 1 ELSE 2 END, r.updated_at DESC""", params).fetchall()]
+    db.close()
+    return jsonify(items=rows)
 
 
 @bp.patch("/recipes/<int:recipe_id>")
 def moderate_recipe(recipe_id):
     _, error = guard()
     if error: return error
-    status = str((request.get_json(silent=True) or {}).get("status", "")).strip()
-    if status not in {"published", "rejected", "draft"}: return jsonify(error="无效状态"), 400
-    db = connect(current_app.config["DATABASE_PATH"]); db.execute("UPDATE recipes SET status=?,updated_at=? WHERE id=?", (status, now_iso(), recipe_id)); db.commit(); db.close(); return jsonify(message="状态已更新", status=status)
+    payload = request.get_json(silent=True) or {}
+    status = payload.get("status")
+    featured = payload.get("is_featured", payload.get("featured"))
+    if status is not None:
+        status = str(status).strip()
+        if status not in {"published", "rejected", "draft", "pending"}:
+            return jsonify(error="无效状态"), 400
+    if featured is not None and not isinstance(featured, (bool, int)):
+        return jsonify(error="编辑精选状态无效"), 400
+    if status is None and featured is None:
+        return jsonify(error="请提供审核状态或编辑精选状态"), 400
+    db = connect(current_app.config["DATABASE_PATH"])
+    if not db.execute("SELECT 1 FROM recipes WHERE id=?", (recipe_id,)).fetchone():
+        db.close(); return jsonify(error="菜谱不存在"), 404
+    updates, params = [], []
+    if status is not None:
+        updates.append("status=?"); params.append(status)
+    if featured is not None:
+        updates.append("is_featured=?"); params.append(1 if bool(featured) else 0)
+    updates.append("updated_at=?"); params.append(now_iso()); params.append(recipe_id)
+    db.execute(f"UPDATE recipes SET {', '.join(updates)} WHERE id=?", params)
+    db.commit()
+    row = db.execute("SELECT status,is_featured FROM recipes WHERE id=?", (recipe_id,)).fetchone()
+    db.close()
+    return jsonify(message="菜谱设置已更新", status=row["status"], is_featured=bool(row["is_featured"]))
 
 
 @bp.get("/users")
