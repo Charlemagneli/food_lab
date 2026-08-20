@@ -52,7 +52,7 @@ def list_query(db, include_unpublished=False):
     if q:
         where.append("(r.title LIKE ? OR r.description LIKE ? OR r.cuisine LIKE ? OR r.meal_type LIKE ? OR u.username LIKE ? OR EXISTS (SELECT 1 FROM recipe_ingredients ri JOIN ingredients i ON i.id=ri.ingredient_id WHERE ri.recipe_id=r.id AND i.name LIKE ?) OR EXISTS (SELECT 1 FROM recipe_tags rt JOIN tags t ON t.id=rt.tag_id WHERE rt.recipe_id=r.id AND t.name LIKE ?))")
         params += [f"%{q}%"] * 7
-    for field, col in (("cuisine", "r.cuisine"), ("meal_type", "r.meal_type"), ("difficulty", "r.difficulty")):
+    for field, col in (("cuisine", "r.cuisine"), ("meal_type", "r.meal_type")):
         if request.args.get(field):
             where.append(f"{col}=?"); params.append(request.args[field])
     if request.args.get("category"):
@@ -143,8 +143,8 @@ def create_recipe():
     db = connect(current_app.config["DATABASE_PATH"])
     status = "draft" if data.get("status") == "draft" else "pending"
     now = now_iso()
-    cur = db.execute("""INSERT INTO recipes(title,description,cover_image,author_id,cuisine,meal_type,category_id,difficulty,prep_time,cook_time,servings,status,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (title, str(data.get("description", "")), data.get("cover_image"), uid, str(data.get("cuisine", "")), str(data.get("meal_type", "")), data.get("category_id") or None, str(data.get("difficulty", "简单")), 0, 0, float(data.get("servings", 2) or 2), status, now, now))
+    cur = db.execute("""INSERT INTO recipes(title,description,cover_image,author_id,cuisine,meal_type,category_id,prep_time,cook_time,servings,status,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""", (title, str(data.get("description", "")), data.get("cover_image"), uid, str(data.get("cuisine", "")), str(data.get("meal_type", "")), data.get("category_id") or None, 0, 0, float(data.get("servings", 2) or 2), status, now, now))
     replace_relations(db, cur.lastrowid, data); db.commit(); item = recipe_detail(db, cur.lastrowid, uid); db.close()
     return jsonify(data=item), 201
 
@@ -161,7 +161,7 @@ def update_recipe(recipe_id):
     if raw_json and set(raw_json).issubset({"status"}) and raw_json.get("status") in {"draft", "pending", "published", "rejected"}:
         db.execute("UPDATE recipes SET status=?,updated_at=? WHERE id=?", (raw_json["status"], now_iso(), recipe_id)); db.commit(); item = recipe_detail(db, recipe_id, uid); db.close(); return jsonify(data=item)
     data = form_data(); now = now_iso(); status = "draft" if data.get("status") == "draft" else ("pending" if user["role"] != "admin" else data.get("status", row["status"]))
-    db.execute("""UPDATE recipes SET title=?,description=?,cover_image=COALESCE(?,cover_image),cuisine=?,meal_type=?,category_id=?,difficulty=?,prep_time=?,cook_time=?,servings=?,status=?,updated_at=? WHERE id=?""", (str(data.get("title", row["title"])).strip(), str(data.get("description", row["description"])), data.get("cover_image"), str(data.get("cuisine", row["cuisine"])), str(data.get("meal_type", row["meal_type"])), data.get("category_id") or None, str(data.get("difficulty", row["difficulty"])), 0, 0, float(data.get("servings", row["servings"]) or 2), status, now, recipe_id))
+    db.execute("""UPDATE recipes SET title=?,description=?,cover_image=COALESCE(?,cover_image),cuisine=?,meal_type=?,category_id=?,prep_time=?,cook_time=?,servings=?,status=?,updated_at=? WHERE id=?""", (str(data.get("title", row["title"])).strip(), str(data.get("description", row["description"])), data.get("cover_image"), str(data.get("cuisine", row["cuisine"])), str(data.get("meal_type", row["meal_type"])), data.get("category_id") or None, 0, 0, float(data.get("servings", row["servings"]) or 2), status, now, recipe_id))
     replace_relations(db, recipe_id, data); db.commit(); item = recipe_detail(db, recipe_id, uid); db.close(); return jsonify(data=item)
 
 

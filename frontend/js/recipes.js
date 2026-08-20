@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const hiddenCategories = new Set(['drinks', 'staple', 'breakfast', 'snack']);
   search.q.value = params.get('q') || '';
   const sortOptions = [
-    ['latest', '最新发布'], ['popular', '浏览最多'], ['likes', '点赞最多'], ['favorites', '收藏最多'], ['views', '浏览最多']
+    ['latest', '最新发布'], ['popular', '浏览最多'], ['likes', '点赞最多'], ['favorites', '收藏最多']
   ];
   const makeControl = (key, label, options) => `<label class="filter-field"><span>${label}</span><div class="filter-control" data-filter="${key}"><button class="filter-trigger" type="button" aria-expanded="false"><span></span><b aria-hidden="true">⌄</b></button><div class="filter-menu">${options.map(([value, text]) => `<button type="button" class="filter-option" data-value="${FoodLab.escape(value)}">${FoodLab.escape(text)}</button>`).join('')}</div></div></label>`;
   try {
