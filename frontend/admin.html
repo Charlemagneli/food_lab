@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>后台 · 食研所</title>
   <link rel="stylesheet" href="/css/style.css">
-  <link rel="stylesheet" href="/css/admin.css">
+  <link rel="stylesheet" href="/css/admin.css?v=20260821-management">
 </head>
 <body>
   <div id="site-header"></div>
@@ -34,10 +34,25 @@
       <p class="muted admin-section-note">通过审核的菜谱才会出现在公开列表；编辑精选标记可随时添加或取消。</p>
       <div id="admin-recipes" class="admin-review-list"></div>
     </section>
+    <div class="admin-management-grid">
+      <section class="panel admin-section admin-management-card">
+        <div class="admin-section-head"><div><span class="eyebrow">Community</span><h2>用户管理</h2></div></div>
+        <div id="admin-users" class="admin-simple-list"></div>
+      </section>
+      <section class="panel admin-section admin-management-card">
+        <div class="admin-section-head"><div><span class="eyebrow">Discussion</span><h2>评论管理</h2></div></div>
+        <div id="admin-comments" class="admin-simple-list"></div>
+      </section>
+    </div>
+    <section class="panel admin-section">
+      <div class="admin-section-head"><div><span class="eyebrow">Taxonomy</span><h2>分类管理</h2></div></div>
+      <form id="category-form" class="admin-category-form"><input name="name" placeholder="分类名称" required><input name="slug" placeholder="英文标识（可选）"><button class="btn" type="submit">新增分类</button></form>
+      <div id="admin-categories" class="admin-category-list"></div>
+    </section>
   </main>
   <div id="site-footer"></div>
   <div id="toast" class="toast"></div>
   <script src="/js/main.js?v=20260821-no-difficulty"></script>
-  <script src="/js/admin.js?v=20260821-featured-api"></script>
+  <script src="/js/admin.js?v=20260821-management"></script>
 </body>
 </html>
