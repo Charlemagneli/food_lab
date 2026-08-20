@@ -79,9 +79,9 @@ def health():
 @bp.get("/categories")
 def categories():
     db = connect(current_app.config["DATABASE_PATH"])
-    order = ["chinese", "western", "japanese", "korean", "southeast-asian", "dessert", "drinks", "breakfast", "soup", "staple", "snack"]
-    hidden_legacy = {"sichuan", "cantonese", "shandong", "jiangsu", "zhejiang", "fujian", "hunan", "anhui"}
-    rows = [dict(x) for x in db.execute("SELECT * FROM categories ORDER BY id").fetchall() if x["slug"] not in hidden_legacy]
+    order = ["chinese", "western", "japanese", "korean", "southeast-asian", "dessert", "soup"]
+    hidden_public = {"drinks", "staple", "breakfast", "snack", "sichuan", "cantonese", "shandong", "jiangsu", "zhejiang", "fujian", "hunan", "anhui"}
+    rows = [dict(x) for x in db.execute("SELECT * FROM categories ORDER BY id").fetchall() if x["slug"] not in hidden_public]
     rank = {slug: index for index, slug in enumerate(order)}
     rows.sort(key=lambda row: (rank.get(row["slug"], len(order)), row["name"]))
     db.close()
