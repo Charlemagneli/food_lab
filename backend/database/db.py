@@ -13,7 +13,13 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE,
  email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, avatar_url TEXT,
- bio TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT 'user', created_at TEXT NOT NULL
+ bio TEXT NOT NULL DEFAULT '', interests TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT 'user', created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS followers (
+ follower_id INTEGER NOT NULL, followed_id INTEGER NOT NULL, created_at TEXT NOT NULL,
+ PRIMARY KEY(follower_id, followed_id), CHECK(follower_id <> followed_id),
+ FOREIGN KEY(follower_id) REFERENCES users(id) ON DELETE CASCADE,
+ FOREIGN KEY(followed_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS categories (
  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, slug TEXT NOT NULL UNIQUE
@@ -89,6 +95,9 @@ def connect(path):
 def init_db(path):
     db = connect(path)
     db.executescript(SCHEMA)
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()}
+    if "interests" not in columns:
+        db.execute("ALTER TABLE users ADD COLUMN interests TEXT NOT NULL DEFAULT ''")
     seed(db)
     db.commit()
     db.close()

@@ -1,3 +1,4 @@
+import json
 import re
 import secrets
 from flask import Blueprint, current_app, jsonify, request, session
@@ -8,7 +9,7 @@ bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
 
 def user_json(row):
-    return {"id": row["id"], "username": row["username"], "email": row["email"], "avatar_url": row["avatar_url"], "bio": row["bio"], "role": row["role"], "created_at": row["created_at"]}
+    return {"id": row["id"], "username": row["username"], "email": row["email"], "avatar_url": row["avatar_url"], "bio": row["bio"], "interests": json.loads(row["interests"] or "[]") if "interests" in row.keys() else [], "role": row["role"], "created_at": row["created_at"]}
 
 
 @bp.get("/csrf")

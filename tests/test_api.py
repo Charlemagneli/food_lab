@@ -67,9 +67,10 @@ class TestFoodLabAPI(unittest.TestCase):
         self.register("settings-user")
         token = self.csrf()
         headers = {"X-CSRF-Token": token}
-        profile = self.client.patch("/api/users/me", json={"username": "new-name", "bio": "喜欢研究家常菜"}, headers=headers)
+        profile = self.client.patch("/api/users/me", json={"username": "new-name", "bio": "喜欢研究家常菜", "interests": ["烘焙", "咖啡"]}, headers=headers)
         self.assertEqual(profile.status_code, 200)
         self.assertEqual(profile.get_json()["user"]["bio"], "喜欢研究家常菜")
+        self.assertEqual(profile.get_json()["user"]["interests"], ["烘焙", "咖啡"])
         self.assertEqual(self.client.get("/api/users/me/recipes").status_code, 200)
         wrong = self.client.post("/api/auth/change-password", json={"current_password": "wrong", "new_password": "newsecret", "confirm_password": "newsecret"}, headers=headers)
         self.assertEqual(wrong.status_code, 400)

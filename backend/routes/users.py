@@ -1,3 +1,4 @@
+import json
 from flask import Blueprint, current_app, jsonify, request, session
 from backend.database.db import connect
 
@@ -12,22 +13,28 @@ def update_me():
     data = request.get_json(silent=True) or {}
     username = str(data.get("username", "")).strip()
     bio = str(data.get("bio", "")).strip()
+    interests = data.get("interests", [])
+    if isinstance(interests, str):
+        interests = [item.strip() for item in interests.split(",") if item.strip()]
+    interests = [str(item).strip() for item in interests if str(item).strip()][:12]
     if len(username) < 2 or len(username) > 30:
         return jsonify(error="用户名长度需为 2-30 个字符"), 400
     if len(bio) > 300:
         return jsonify(error="个人简介不能超过 300 个字符"), 400
     db = connect(current_app.config["DATABASE_PATH"])
     try:
-        db.execute("UPDATE users SET username=?,bio=?,avatar_url=? WHERE id=?", (username, bio, data.get("avatar_url"), uid))
+        db.execute("UPDATE users SET username=?,bio=?,interests=?,avatar_url=? WHERE id=?", (username, bio, json.dumps(interests, ensure_ascii=False), data.get("avatar_url"), uid))
         db.commit()
     except Exception as exc:
         db.close()
         if "UNIQUE" in str(exc):
             return jsonify(error="用户名已存在"), 409
         raise
-    row = db.execute("SELECT id,username,email,avatar_url,bio,role,created_at FROM users WHERE id=?", (uid,)).fetchone()
+    row = db.execute("SELECT id,username,email,avatar_url,bio,interests,role,created_at FROM users WHERE id=?", (uid,)).fetchone()
     db.close()
-    return jsonify(user=dict(row))
+    result = dict(row)
+    result["interests"] = json.loads(result.get("interests") or "[]")
+    return jsonify(user=result)
 
 
 @bp.get("/me/recipes")
@@ -44,11 +51,14 @@ def my_recipes():
 @bp.get("/<int:user_id>")
 def profile(user_id):
     db = connect(current_app.config["DATABASE_PATH"])
-    user = db.execute("SELECT id,username,avatar_url,bio,role,created_at FROM users WHERE id=?", (user_id,)).fetchone()
+    user = db.execute("SELECT id,username,avatar_url,bio,interests,role,created_at FROM users WHERE id=?", (user_id,)).fetchone()
     if not user: db.close(); return jsonify(error="用户不存在"), 404
     recipes = [dict(x) for x in db.execute("SELECT id,title,description,cover_image,cuisine,difficulty,prep_time,cook_time,likes_count,favorites_count FROM recipes WHERE author_id=? AND status='published' ORDER BY created_at DESC", (user_id,)).fetchall()]
     counts = {"recipes": db.execute("SELECT count(*) FROM recipes WHERE author_id=? AND status='published'", (user_id,)).fetchone()[0], "favorites": db.execute("SELECT count(*) FROM favorites WHERE user_id=?", (user_id,)).fetchone()[0], "likes": db.execute("SELECT count(*) FROM likes l JOIN recipes r ON r.id=l.recipe_id WHERE r.author_id=?", (user_id,)).fetchone()[0]}
-    db.close(); return jsonify(user=dict(user), counts=counts, recipes=recipes)
+    user_data = dict(user)
+    user_data["interests"] = json.loads(user_data.get("interests") or "[]")
+    user_data["followers"] = db.execute("SELECT count(*) FROM followers WHERE followed_id=?", (user_id,)).fetchone()[0]
+    db.close(); return jsonify(user=user_data, counts=counts)
 
 
 @bp.get("/me/favorites")
