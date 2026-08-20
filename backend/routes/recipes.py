@@ -64,7 +64,7 @@ def list_query(db, include_unpublished=False):
     except ValueError:
         page, per_page = 1, 12
     total = db.execute(f"SELECT count(*) FROM recipes r JOIN users u ON u.id=r.author_id LEFT JOIN categories c ON c.id=r.category_id WHERE {' AND '.join(where)}", params).fetchone()[0]
-    rows = db.execute(f"""SELECT r.*,u.username AS author_name,c.name AS category_name,
+    rows = db.execute(f"""SELECT r.*,u.username AS author_name,u.avatar_url AS author_avatar,c.name AS category_name,
       COALESCE((SELECT json_group_array(t.name) FROM recipe_tags rt JOIN tags t ON t.id=rt.tag_id WHERE rt.recipe_id=r.id),'[]') tag_list
       FROM recipes r JOIN users u ON u.id=r.author_id LEFT JOIN categories c ON c.id=r.category_id
       WHERE {' AND '.join(where)} ORDER BY {order} LIMIT ? OFFSET ?""", params + [per_page, (page-1)*per_page]).fetchall()

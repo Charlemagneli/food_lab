@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from io import BytesIO
 from pathlib import Path
 
 from backend.app import create_app
@@ -72,6 +73,16 @@ class TestFoodLabAPI(unittest.TestCase):
         self.assertEqual(profile.get_json()["user"]["bio"], "喜欢研究家常菜")
         self.assertEqual(profile.get_json()["user"]["interests"], ["烘焙", "咖啡"])
         self.assertEqual(self.client.get("/api/users/me/recipes").status_code, 200)
+        avatar = self.client.post("/api/users/me/avatar", data={"avatar": (BytesIO(b"fake-image"), "avatar.png")}, headers=headers, content_type="multipart/form-data")
+        self.assertEqual(avatar.status_code, 200)
+        self.assertTrue(avatar.get_json()["avatar_url"].startswith("/images/uploads/avatar-"))
+        avatar_url = avatar.get_json()["avatar_url"]
+        preserved = self.client.patch("/api/users/me", json={"username": "new-name", "bio": "更新简介", "interests": ["烘焙"]}, headers=headers)
+        self.assertEqual(preserved.status_code, 200)
+        self.assertEqual(preserved.get_json()["user"]["avatar_url"], avatar_url)
+        mime_fallback = self.client.post("/api/users/me/avatar", data={"avatar": (BytesIO(b"fake-image"), "photo", "image/png")}, headers=headers, content_type="multipart/form-data")
+        self.assertEqual(mime_fallback.status_code, 200)
+        self.assertTrue(mime_fallback.get_json()["avatar_url"].endswith(".png"))
         wrong = self.client.post("/api/auth/change-password", json={"current_password": "wrong", "new_password": "newsecret", "confirm_password": "newsecret"}, headers=headers)
         self.assertEqual(wrong.status_code, 400)
         changed = self.client.post("/api/auth/change-password", json={"current_password": "secret1", "new_password": "newsecret", "confirm_password": "newsecret"}, headers=headers)

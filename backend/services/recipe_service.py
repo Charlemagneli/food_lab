@@ -6,6 +6,7 @@ def recipe_summary(row):
         return None
     item = dict(row)
     item["author"] = item.pop("author_name", "")
+    item["author_avatar"] = item.pop("author_avatar", None)
     item["category"] = item.pop("category_name", None)
     item.pop("difficulty", None)
     # 烹饪时间不再由用户设置；保留字段仅为兼容旧数据，展示时间取准备时间。

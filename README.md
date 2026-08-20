@@ -226,6 +226,7 @@ SQLite 数据和上传目录使用 Docker 命名卷。普通的 `docker compose 
 | `POST /api/recipes/:id/comments` | 发布评论 |
 | `GET /api/auth/me` | 当前登录用户 |
 | `PATCH /api/users/me` | 更新账户资料 |
+| `POST /api/users/me/avatar` | 上传或更换头像（multipart 字段 `avatar`） |
 | `POST /api/auth/change-password` | 修改密码 |
 | `GET /api/admin/recipes` | 管理员菜谱列表 |
 | `PATCH /api/admin/recipes/:id` | 审核或设置编辑精选 |

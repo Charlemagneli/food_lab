@@ -1,8 +1,27 @@
 import json
+import os
+import uuid
 from flask import Blueprint, current_app, jsonify, request, session
+from werkzeug.utils import secure_filename
 from backend.database.db import connect
 
 bp = Blueprint("users", __name__, url_prefix="/api/users")
+
+def save_avatar(file):
+    if not file or not file.filename: return None
+    ext = os.path.splitext(secure_filename(file.filename))[1].lower()
+    mime_ext = {
+        "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp",
+        "image/gif": ".gif", "image/avif": ".avif", "image/bmp": ".bmp",
+    }
+    allowed_exts = set(mime_ext.values()) | {".jfif"}
+    if ext not in allowed_exts:
+        ext = mime_ext.get((file.mimetype or "").lower())
+    if not ext: return None
+    filename = f"avatar-{uuid.uuid4().hex}{ext}"
+    os.makedirs(current_app.config["UPLOAD_FOLDER"], exist_ok=True)
+    file.save(os.path.join(current_app.config["UPLOAD_FOLDER"], filename))
+    return f"/images/uploads/{filename}"
 
 
 @bp.patch("/me")
@@ -23,7 +42,9 @@ def update_me():
         return jsonify(error="个人简介不能超过 300 个字符"), 400
     db = connect(current_app.config["DATABASE_PATH"])
     try:
-        db.execute("UPDATE users SET username=?,bio=?,interests=?,avatar_url=? WHERE id=?", (username, bio, json.dumps(interests, ensure_ascii=False), data.get("avatar_url"), uid))
+        # Preserve an avatar uploaded through the dedicated multipart endpoint
+        # when a profile form submission does not include avatar_url.
+        db.execute("UPDATE users SET username=?,bio=?,interests=?,avatar_url=COALESCE(?, avatar_url) WHERE id=?", (username, bio, json.dumps(interests, ensure_ascii=False), data.get("avatar_url"), uid))
         db.commit()
     except Exception as exc:
         db.close()
@@ -35,6 +56,18 @@ def update_me():
     result = dict(row)
     result["interests"] = json.loads(result.get("interests") or "[]")
     return jsonify(user=result)
+
+@bp.post("/me/avatar")
+def upload_avatar():
+    uid = session.get("user_id")
+    if not uid: return jsonify(error="请先登录"), 401
+    avatar_url = save_avatar(request.files.get("avatar"))
+    if not avatar_url: return jsonify(error="请上传有效的图片文件（JPG、PNG、WEBP、GIF 等）"), 400
+    db = connect(current_app.config["DATABASE_PATH"])
+    db.execute("UPDATE users SET avatar_url=? WHERE id=?", (avatar_url, uid)); db.commit()
+    row = db.execute("SELECT id,username,email,avatar_url,bio,interests,role,created_at FROM users WHERE id=?", (uid,)).fetchone(); db.close()
+    result = dict(row); result["interests"] = json.loads(result.get("interests") or "[]")
+    return jsonify(user=result, avatar_url=avatar_url)
 
 
 @bp.get("/me/recipes")
