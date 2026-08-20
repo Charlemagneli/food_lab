@@ -1,4 +1,9 @@
 document.addEventListener('DOMContentLoaded', async () => {
+  const user = await FoodLab.loadUser();
+  if (!user) {
+    location.replace('/register.html?next=' + encodeURIComponent(location.pathname + location.search));
+    return;
+  }
   const ingredientBox = document.querySelector('#ingredients');
   const stepBox = document.querySelector('#steps');
   const editId = new URLSearchParams(location.search).get('edit');
@@ -7,6 +12,27 @@ document.addEventListener('DOMContentLoaded', async () => {
   const cuisineTrigger = picker.querySelector('.cuisine-trigger');
   const coverInput = document.querySelector('[name=cover_image]');
   const coverPreview = document.querySelector('#cover-preview');
+  const tagsInput = document.querySelector('[name=tags]');
+  const tagKeyword = document.querySelector('#tag-keyword');
+  const tagItems = document.querySelector('#tag-editor-items');
+  let tags = [];
+  const renderTags = () => {
+    tagsInput.value = JSON.stringify(tags);
+    tagItems.innerHTML = tags.map((tag, index) => `<button class="tag-editor-chip" type="button" data-tag-index="${index}"><span>${FoodLab.escape(tag)}</span><b aria-label="删除 ${FoodLab.escape(tag)}">×</b></button>`).join('');
+    tagItems.querySelectorAll('[data-tag-index]').forEach(button => button.onclick = () => { tags.splice(Number(button.dataset.tagIndex), 1); renderTags(); tagKeyword.focus(); });
+  };
+  const addTag = () => {
+    const tag = tagKeyword.value.trim().replace(/^#+/, '');
+    if (!tag) return;
+    if (tags.includes(tag)) { FoodLab.toast('这个标签已经添加过了'); tagKeyword.select(); return; }
+    if (tags.length >= 12) { FoodLab.toast('最多添加 12 个标签'); return; }
+    tags.push(tag); tagKeyword.value = ''; renderTags();
+  };
+  tagKeyword.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); addTag(); }
+    if (event.key === 'Backspace' && !tagKeyword.value && tags.length) { tags.pop(); renderTags(); }
+  });
+  document.querySelector('#tag-editor').onclick = () => tagKeyword.focus();
   const showPreview = (element, url, alt) => { element.innerHTML = url ? `<img src="${FoodLab.escape(url)}" alt="${FoodLab.escape(alt)}">` : '<span>选择图片后可在这里预览</span>'; };
   coverInput.onchange = () => { const file = coverInput.files[0]; if (file) showPreview(coverPreview, URL.createObjectURL(file), '封面预览'); };
   const setCuisine = value => {
@@ -40,7 +66,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       const d = (await FoodLab.api('/api/recipes/' + editId)).data;
       document.querySelector('[name=title]').value = d.title; document.querySelector('[name=description]').value = d.description;
-      setCuisine(d.cuisine); document.querySelector('[name=servings]').value = d.servings;
+      setCuisine(d.cuisine);
+      tags = [...(d.tags || [])]; renderTags();
       showPreview(coverPreview, d.cover_image, '当前封面');
       ingredientBox.innerHTML = ''; stepBox.innerHTML = ''; d.ingredients.forEach(addIngredient); d.steps.forEach(addStep);
       document.querySelector('.form-wrap h1').textContent = '编辑菜谱';
@@ -49,6 +76,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.querySelector('#recipe-form').onsubmit = async event => {
     event.preventDefault();
     if (!cuisineInput.value) { FoodLab.toast('请选择菜系'); cuisineTrigger.focus(); return; }
+    if (tagKeyword.value.trim()) addTag();
     const formData = new FormData(event.target); formData.set('status', event.submitter.value);
     formData.set('ingredients', JSON.stringify([...ingredientBox.children].map(row => ({name: row.querySelector('[data-name]').value, amount: row.querySelector('[data-amount]').value, unit: row.querySelector('[data-unit]').value}))));
     const stepRows = [...stepBox.children];
@@ -56,7 +84,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     stepRows.forEach((row, index) => { const file = row.querySelector('[data-step-image]').files[0]; if (file) formData.append(`step_image_${index}`, file); });
     try {
       await FoodLab.api(editId ? '/api/recipes/' + editId : '/api/recipes', {method: editId ? 'PUT' : 'POST', body: formData});
-      FoodLab.toast(editId ? '菜谱已更新并进入审核' : '菜谱已提交'); setTimeout(() => location.href = '/profile.html', 700);
+      if (event.submitter.value === 'pending') {
+        document.querySelector('.recipe-editor-panel').innerHTML = '<div class="submission-success"><div class="submission-mark" aria-hidden="true">✓</div><span class="eyebrow">Submission received</span><h1>已提交</h1><p>请等待审核，审核通过后菜谱会在公开列表中展示。</p><small id="submission-countdown">3 秒后返回发布菜谱页面</small></div>';
+        let seconds = 3;
+        const countdown = document.querySelector('#submission-countdown');
+        const timer = setInterval(() => { seconds -= 1; if (seconds <= 0) { clearInterval(timer); location.href = '/publish.html'; } else countdown.textContent = `${seconds} 秒后返回发布菜谱页面`; }, 1000);
+      } else {
+        FoodLab.toast('草稿已保存'); setTimeout(() => location.href = '/my-recipes.html', 700);
+      }
     } catch (error) { FoodLab.toast(error.message); }
   };
 });

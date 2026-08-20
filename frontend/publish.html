@@ -4,17 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>发布菜谱 · 食研所</title>
-  <link rel="stylesheet" href="/css/style.css?v=20260820-step-images">
+  <link rel="stylesheet" href="/css/style.css?v=20260820-tag-chips">
 </head>
 <body>
   <div id="site-header"></div>
   <main class="form-wrap container">
     <div class="panel recipe-editor-panel">
-      <span class="eyebrow">Share your table</span><h1>发布一道菜</h1>
+      <span class="eyebrow">Share your table</span><h1>发布菜谱</h1>
       <form id="recipe-form" enctype="multipart/form-data">
         <div class="field"><label>菜谱名称</label><input name="title" required></div>
         <div class="field"><label>简介</label><textarea name="description" rows="3"></textarea></div>
-        <div class="form-grid recipe-basics">
+        <div class="recipe-basics">
           <div class="field cuisine-field">
             <label>菜系</label>
             <div class="cuisine-picker" id="cuisine-picker">
@@ -28,17 +28,16 @@
               </div>
             </div>
           </div>
-          <div class="field"><label>份量</label><input name="servings" type="number" min="1" value="2"></div>
         </div>
         <div class="field"><label>封面图片</label><div class="cover-upload"><div class="upload-preview" id="cover-preview"><span>选择图片后可在这里预览</span></div><label class="btn secondary upload-button">选择封面<input name="cover_image" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif"></label></div></div>
         <div class="field"><label>食材</label><div id="ingredients"></div><button type="button" class="btn secondary" id="add-ingredient">＋ 添加食材</button></div>
         <div class="field"><label>步骤</label><div id="steps"></div><button type="button" class="btn secondary" id="add-step">＋ 添加步骤</button></div>
-        <div class="field"><label>标签（逗号分隔）</label><input name="tags" placeholder="家常菜,快手菜"></div>
-        <div class="actions"><button class="btn" name="status" value="pending">提交审核</button><button class="btn secondary" name="status" value="draft">保存草稿</button></div>
+        <div class="field"><label>标签</label><input name="tags" type="hidden"><div class="tag-editor" id="tag-editor"><div class="tag-editor-items" id="tag-editor-items"></div><input id="tag-keyword" type="text" maxlength="20" autocomplete="off" placeholder="输入关键词后按回车"></div><p class="field-hint">每个关键词输入完成后按 Enter，最多添加 12 个标签。</p></div>
+        <div class="actions"><button class="btn" name="status" value="pending">提交</button><button class="btn secondary" name="status" value="draft">保存草稿</button></div>
       </form>
     </div>
   </main>
   <div id="site-footer"></div><div id="toast" class="toast"></div>
-  <script src="/js/main.js?v=20260820-cuisine"></script><script src="/js/publish.js?v=20260820-step-images"></script>
+  <script src="/js/main.js?v=20260820-publish-auth"></script><script src="/js/publish.js?v=20260820-tag-chips"></script>
 </body>
 </html>

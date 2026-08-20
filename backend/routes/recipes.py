@@ -36,6 +36,15 @@ def save_file(file):
     return f"/images/uploads/{name}"
 
 
+def normalize_tags(values):
+    unique_tags = []
+    for value in values if isinstance(values, list) else []:
+        tag = str(value).strip()[:20]
+        if tag and tag not in unique_tags:
+            unique_tags.append(tag)
+    return unique_tags[:12]
+
+
 def form_data():
     if request.mimetype and request.mimetype.startswith("multipart/"):
         data = request.form.to_dict()
@@ -45,13 +54,18 @@ def form_data():
             image_url = save_file(request.files.get(f"step_image_{index}"))
             if image_url:
                 step["image_url"] = image_url
-        data["tags"] = [x.strip() for x in data.get("tags", "").split(",") if x.strip()]
+        try:
+            raw_tags = json.loads(data.get("tags", "[]"))
+        except (TypeError, ValueError):
+            raw_tags = []
+        data["tags"] = normalize_tags(raw_tags)
         data["cover_image"] = save_file(request.files.get("cover_image")) or data.get("cover_image")
         return data
     data = request.get_json(silent=True) or {}
     data.setdefault("ingredients", [])
     data.setdefault("steps", [])
     data.setdefault("tags", [])
+    data["tags"] = normalize_tags(data["tags"])
     return data
 
 
@@ -158,7 +172,7 @@ def create_recipe():
     status = "draft" if data.get("status") == "draft" else "pending"
     now = now_iso()
     cur = db.execute("""INSERT INTO recipes(title,description,cover_image,author_id,cuisine,category_id,prep_time,cook_time,servings,status,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (title, str(data.get("description", "")), data.get("cover_image"), uid, cuisine, category["id"] if category else None, 0, 0, float(data.get("servings", 2) or 2), status, now, now))
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (title, str(data.get("description", "")), data.get("cover_image"), uid, cuisine, category["id"] if category else None, 0, 0, 1, status, now, now))
     replace_relations(db, cur.lastrowid, data); db.commit(); item = recipe_detail(db, cur.lastrowid, uid); db.close()
     return jsonify(data=item), 201
 
@@ -178,7 +192,7 @@ def update_recipe(recipe_id):
     cuisine = str(data.get("cuisine", row["cuisine"])).strip()
     if cuisine not in CUISINES: db.close(); return jsonify(error="请选择有效的菜系"), 400
     category = db.execute("SELECT id FROM categories WHERE slug=?", (CUISINES[cuisine],)).fetchone()
-    db.execute("""UPDATE recipes SET title=?,description=?,cover_image=COALESCE(?,cover_image),cuisine=?,category_id=?,prep_time=?,cook_time=?,servings=?,status=?,updated_at=? WHERE id=?""", (str(data.get("title", row["title"])).strip(), str(data.get("description", row["description"])), data.get("cover_image"), cuisine, category["id"] if category else None, 0, 0, float(data.get("servings", row["servings"]) or 2), status, now, recipe_id))
+    db.execute("""UPDATE recipes SET title=?,description=?,cover_image=COALESCE(?,cover_image),cuisine=?,category_id=?,prep_time=?,cook_time=?,servings=?,status=?,updated_at=? WHERE id=?""", (str(data.get("title", row["title"])).strip(), str(data.get("description", row["description"])), data.get("cover_image"), cuisine, category["id"] if category else None, 0, 0, 1, status, now, recipe_id))
     replace_relations(db, recipe_id, data); db.commit(); item = recipe_detail(db, recipe_id, uid); db.close(); return jsonify(data=item)
 
 
