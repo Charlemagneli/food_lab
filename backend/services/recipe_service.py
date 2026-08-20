@@ -31,7 +31,7 @@ def recipe_detail(db, recipe_id, viewer_id=None):
     result["ingredients"] = [dict(x) for x in db.execute("""SELECT i.name,ri.amount,ri.unit,ri.position
         FROM recipe_ingredients ri JOIN ingredients i ON i.id=ri.ingredient_id WHERE ri.recipe_id=? ORDER BY ri.position""", (recipe_id,)).fetchall()]
     result["steps"] = [dict(x) for x in db.execute("SELECT position,instruction,image_url FROM steps WHERE recipe_id=? ORDER BY position", (recipe_id,)).fetchall()]
-    result["comments"] = [dict(x) for x in db.execute("""SELECT c.id,c.content,c.created_at,u.username,u.avatar_url,
+    result["comments"] = [dict(x) for x in db.execute("""SELECT c.id,c.user_id,c.content,c.created_at,u.username,u.avatar_url,
         (SELECT count(*) FROM comment_likes cl WHERE cl.comment_id=c.id) AS likes_count,
         EXISTS(SELECT 1 FROM comment_likes cl WHERE cl.comment_id=c.id AND cl.user_id=?) AS is_liked
         FROM comments c JOIN users u ON u.id=c.user_id WHERE c.recipe_id=? ORDER BY c.created_at DESC""", (viewer_id or -1, recipe_id)).fetchall()]

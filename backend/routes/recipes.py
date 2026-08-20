@@ -5,6 +5,7 @@ import uuid
 from flask import Blueprint, current_app, jsonify, request, session
 from werkzeug.utils import secure_filename
 from backend.database.db import connect, now_iso
+from backend.services.content_filter import find_blocked_content
 from backend.services.recipe_service import recipe_detail, recipe_summary
 
 bp = Blueprint("recipes", __name__, url_prefix="/api")
@@ -128,7 +129,8 @@ def get_recipe(recipe_id):
     if not row:
         db.close(); return jsonify(error="菜谱不存在"), 404
     uid = session.get("user_id")
-    if row["status"] != "published" and uid != row["author_id"]:
+    viewer = db.execute("SELECT role FROM users WHERE id=?", (uid,)).fetchone() if uid else None
+    if row["status"] != "published" and uid != row["author_id"] and (not viewer or viewer["role"] != "admin"):
         db.close(); return jsonify(error="菜谱不存在"), 404
     db.execute("UPDATE recipes SET views_count=views_count+1 WHERE id=?", (recipe_id,)); db.commit()
     data = recipe_detail(db, recipe_id, uid)
@@ -187,7 +189,10 @@ def update_recipe(recipe_id):
     if row["author_id"] != uid and user["role"] != "admin": db.close(); return jsonify(error="没有权限"), 403
     raw_json = request.get_json(silent=True) if not (request.mimetype and request.mimetype.startswith("multipart/")) else None
     if raw_json and set(raw_json).issubset({"status"}) and raw_json.get("status") in {"draft", "pending", "published", "rejected"}:
-        db.execute("UPDATE recipes SET status=?,updated_at=? WHERE id=?", (raw_json["status"], now_iso(), recipe_id)); db.commit(); item = recipe_detail(db, recipe_id, uid); db.close(); return jsonify(data=item)
+        requested_status = raw_json["status"]
+        if user["role"] != "admin":
+            requested_status = "draft" if requested_status == "draft" else "pending"
+        db.execute("UPDATE recipes SET status=?,updated_at=? WHERE id=?", (requested_status, now_iso(), recipe_id)); db.commit(); item = recipe_detail(db, recipe_id, uid); db.close(); return jsonify(data=item)
     data = form_data(); now = now_iso(); status = "draft" if data.get("status") == "draft" else ("pending" if user["role"] != "admin" else data.get("status", row["status"]))
     cuisine = str(data.get("cuisine", row["cuisine"])).strip()
     if cuisine not in CUISINES: db.close(); return jsonify(error="请选择有效的菜系"), 400
@@ -210,7 +215,9 @@ def delete_recipe(recipe_id):
 def favorite(recipe_id):
     uid, error = require_user()
     if error: return error
-    db = connect(current_app.config["DATABASE_PATH"]); exists = db.execute("SELECT 1 FROM favorites WHERE user_id=? AND recipe_id=?", (uid, recipe_id)).fetchone()
+    db = connect(current_app.config["DATABASE_PATH"])
+    if not db.execute("SELECT 1 FROM recipes WHERE id=? AND status='published'", (recipe_id,)).fetchone(): db.close(); return jsonify(error="菜谱不存在"), 404
+    exists = db.execute("SELECT 1 FROM favorites WHERE user_id=? AND recipe_id=?", (uid, recipe_id)).fetchone()
     if exists or request.method == "DELETE":
         db.execute("DELETE FROM favorites WHERE user_id=? AND recipe_id=?", (uid, recipe_id)); active = False
     else:
@@ -222,7 +229,9 @@ def favorite(recipe_id):
 def like(recipe_id):
     uid, error = require_user()
     if error: return error
-    db = connect(current_app.config["DATABASE_PATH"]); exists = db.execute("SELECT 1 FROM likes WHERE user_id=? AND recipe_id=?", (uid, recipe_id)).fetchone()
+    db = connect(current_app.config["DATABASE_PATH"])
+    if not db.execute("SELECT 1 FROM recipes WHERE id=? AND status='published'", (recipe_id,)).fetchone(): db.close(); return jsonify(error="菜谱不存在"), 404
+    exists = db.execute("SELECT 1 FROM likes WHERE user_id=? AND recipe_id=?", (uid, recipe_id)).fetchone()
     if exists or request.method == "DELETE":
         db.execute("DELETE FROM likes WHERE user_id=? AND recipe_id=?", (uid, recipe_id)); active = False
     else:
@@ -241,7 +250,19 @@ def add_comment(recipe_id):
     if error: return error
     content = str((request.get_json(silent=True) or {}).get("content", "")).strip()
     if not content or len(content) > 500: return jsonify(error="评论不能为空且不能超过 500 个字符"), 400
-    db = connect(current_app.config["DATABASE_PATH"]); db.execute("INSERT INTO comments(user_id,recipe_id,content,created_at) VALUES (?,?,?,?)", (uid, recipe_id, content, now_iso())); db.commit(); db.close(); return jsonify(message="评论已发布"), 201
+    db = connect(current_app.config["DATABASE_PATH"])
+    if not db.execute("SELECT 1 FROM recipes WHERE id=? AND status='published'", (recipe_id,)).fetchone(): db.close(); return jsonify(error="菜谱不存在"), 404
+    blocked = find_blocked_content(content, current_app.config)
+    if blocked:
+        db.execute("""INSERT INTO comment_moderation_events
+            (user_id,recipe_id,reason_code,rule_hash,created_at) VALUES (?,?,?,?,?)""",
+            (uid, recipe_id, blocked["category"], blocked["rule_hash"], now_iso()))
+        db.commit(); db.close()
+        return jsonify(
+            error="评论包含不允许发布的内容，请修改后重试",
+            code="content_blocked"
+        ), 422
+    db.execute("INSERT INTO comments(user_id,recipe_id,content,created_at) VALUES (?,?,?,?)", (uid, recipe_id, content, now_iso())); db.commit(); db.close(); return jsonify(message="评论已发布"), 201
 
 
 @bp.delete("/comments/<int:comment_id>")
@@ -259,6 +280,7 @@ def like_comment(comment_id):
     uid, error = require_user()
     if error: return error
     db = connect(current_app.config["DATABASE_PATH"])
+    if not db.execute("SELECT 1 FROM comments WHERE id=?", (comment_id,)).fetchone(): db.close(); return jsonify(error="评论不存在"), 404
     exists = db.execute("SELECT 1 FROM comment_likes WHERE user_id=? AND comment_id=?", (uid, comment_id)).fetchone()
     if exists or request.method == "DELETE":
         db.execute("DELETE FROM comment_likes WHERE user_id=? AND comment_id=?", (uid, comment_id)); active = False

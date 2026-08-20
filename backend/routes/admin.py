@@ -26,13 +26,14 @@ def pending_recipes():
     status = request.args.get("status", "").strip()
     params = []
     where = ""
-    if status in {"draft", "pending", "published", "rejected"}:
+    if status in {"draft", "pending", "published", "rejected", "hidden"}:
         where = " WHERE r.status=?"
         params.append(status)
     db = connect(current_app.config["DATABASE_PATH"])
     rows = [dict(x) for x in db.execute(f"""SELECT r.id,r.title,r.description,r.cover_image,r.status,r.is_featured,
-        r.cuisine,r.prep_time,r.cook_time,r.created_at,r.updated_at,u.username AS author
-        FROM recipes r JOIN users u ON u.id=r.author_id{where} ORDER BY
+        r.cuisine,r.created_at,r.updated_at,r.reviewed_at,r.rejection_reason,u.username AS author,
+        reviewer.username AS reviewer
+        FROM recipes r JOIN users u ON u.id=r.author_id LEFT JOIN users reviewer ON reviewer.id=r.reviewed_by{where} ORDER BY
         CASE r.status WHEN 'pending' THEN 0 WHEN 'published' THEN 1 ELSE 2 END, r.updated_at DESC""", params).fetchall()]
     db.close()
     return jsonify(items=rows)
@@ -40,15 +41,20 @@ def pending_recipes():
 
 @bp.patch("/recipes/<int:recipe_id>")
 def moderate_recipe(recipe_id):
-    _, error = guard()
+    admin_id, error = guard()
     if error: return error
     payload = request.get_json(silent=True) or {}
     status = payload.get("status")
+    reason = str(payload.get("reason", "")).strip()
     featured = payload.get("is_featured", payload.get("featured"))
     if status is not None:
         status = str(status).strip()
-        if status not in {"published", "rejected", "draft", "pending"}:
+        if status not in {"published", "rejected", "draft", "pending", "hidden"}:
             return jsonify(error="无效状态"), 400
+        if status in {"rejected", "hidden"} and not reason:
+            return jsonify(error="请填写驳回或隐藏原因"), 400
+        if len(reason) > 300:
+            return jsonify(error="处理原因不能超过 300 个字符"), 400
     if featured is not None and not isinstance(featured, (bool, int)):
         return jsonify(error="编辑精选状态无效"), 400
     if status is None and featured is None:
@@ -59,14 +65,31 @@ def moderate_recipe(recipe_id):
     updates, params = [], []
     if status is not None:
         updates.append("status=?"); params.append(status)
+        if status in {"published", "rejected", "hidden"}:
+            updates.extend(["reviewed_at=?", "reviewed_by=?", "rejection_reason=?"]); params.extend([now_iso(), admin_id, reason if status != "published" else ""])
+        elif status == "pending":
+            updates.extend(["reviewed_at=NULL", "reviewed_by=NULL", "rejection_reason='' "])
+        if status == "hidden":
+            updates.append("is_featured=0")
     if featured is not None:
         updates.append("is_featured=?"); params.append(1 if bool(featured) else 0)
     updates.append("updated_at=?"); params.append(now_iso()); params.append(recipe_id)
     db.execute(f"UPDATE recipes SET {', '.join(updates)} WHERE id=?", params)
     db.commit()
-    row = db.execute("SELECT status,is_featured FROM recipes WHERE id=?", (recipe_id,)).fetchone()
+    row = db.execute("SELECT status,is_featured,reviewed_at,rejection_reason FROM recipes WHERE id=?", (recipe_id,)).fetchone()
     db.close()
-    return jsonify(message="菜谱设置已更新", status=row["status"], is_featured=bool(row["is_featured"]))
+    return jsonify(message="菜谱设置已更新", status=row["status"], is_featured=bool(row["is_featured"]), reviewed_at=row["reviewed_at"], rejection_reason=row["rejection_reason"])
+
+
+@bp.delete("/recipes/<int:recipe_id>")
+def delete_recipe(recipe_id):
+    _, error = guard()
+    if error: return error
+    db = connect(current_app.config["DATABASE_PATH"])
+    if not db.execute("SELECT 1 FROM recipes WHERE id=?", (recipe_id,)).fetchone():
+        db.close(); return jsonify(error="菜谱不存在"), 404
+    db.execute("DELETE FROM recipes WHERE id=?", (recipe_id,)); db.commit(); db.close()
+    return jsonify(message="菜谱已删除")
 
 
 @bp.patch("/recipes/<int:recipe_id>/featured")

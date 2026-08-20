@@ -28,6 +28,8 @@
         <div class="admin-filter" role="tablist" aria-label="菜谱筛选">
           <button class="active" data-status="pending" role="tab">待审核</button>
           <button data-status="published" role="tab">已发布</button>
+          <button data-status="hidden" role="tab">已隐藏</button>
+          <button data-status="rejected" role="tab">已驳回</button>
           <button data-status="all" role="tab">全部</button>
         </div>
       </div>
@@ -47,7 +49,7 @@
   </main>
   <div id="site-footer"></div>
   <div id="toast" class="toast"></div>
-  <script src="/js/main.js?v=20260820-publish-auth"></script>
-  <script src="/js/admin.js?v=20260821-management"></script>
+  <script src="/js/main.js?v=20260820-messages"></script>
+  <script src="/js/admin.js?v=20260820-moderation"></script>
 </body>
 </html>

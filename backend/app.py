@@ -6,6 +6,7 @@ from backend.routes.auth import bp as auth_bp
 from backend.routes.recipes import bp as recipes_bp
 from backend.routes.users import bp as users_bp
 from backend.routes.admin import bp as admin_bp
+from backend.routes.messages import bp as messages_bp
 
 
 def create_app(config_class=Config):
@@ -14,7 +15,7 @@ def create_app(config_class=Config):
     os.makedirs(os.path.dirname(app.config["DATABASE_PATH"]), exist_ok=True)
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
     init_db(app.config["DATABASE_PATH"])
-    app.register_blueprint(auth_bp); app.register_blueprint(recipes_bp); app.register_blueprint(users_bp); app.register_blueprint(admin_bp)
+    app.register_blueprint(auth_bp); app.register_blueprint(recipes_bp); app.register_blueprint(users_bp); app.register_blueprint(admin_bp); app.register_blueprint(messages_bp)
 
     @app.before_request
     def csrf_protect():

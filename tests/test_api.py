@@ -4,6 +4,7 @@ from io import BytesIO
 from pathlib import Path
 
 from backend.app import create_app
+from backend.database.db import connect
 
 
 class TestFoodLabAPI(unittest.TestCase):
@@ -52,7 +53,34 @@ class TestFoodLabAPI(unittest.TestCase):
         self.assertEqual(self.client.post("/api/recipes/1/favorite", headers=headers).status_code, 200)
         comment = self.client.post("/api/recipes/1/comments", json={"content": "很好吃！"}, headers=headers)
         self.assertEqual(comment.status_code, 201)
+        blocked_comment = self.client.post("/api/recipes/1/comments", json={"content": "参加刷 单-返 利项目"}, headers=headers)
+        self.assertEqual(blocked_comment.status_code, 422)
+        self.assertEqual(blocked_comment.get_json()["code"], "content_blocked")
+        allowed_comment = self.client.post("/api/recipes/1/comments", json={"content": "分享一条反诈骗提醒。"}, headers=headers)
+        self.assertEqual(allowed_comment.status_code, 201)
+        db = connect(self.app.config["DATABASE_PATH"])
+        moderation_event = db.execute("SELECT reason_code,rule_hash FROM comment_moderation_events").fetchone()
+        event_columns = {row["name"] for row in db.execute("PRAGMA table_info(comment_moderation_events)").fetchall()}
+        blocked_saved = db.execute("SELECT 1 FROM comments WHERE content LIKE '%刷 单%'").fetchone()
+        db.close()
+        self.assertEqual(moderation_event["reason_code"], "fraud")
+        self.assertEqual(len(moderation_event["rule_hash"]), 16)
+        self.assertNotIn("content", event_columns)
+        self.assertIsNone(blocked_saved)
+        comments = self.client.get("/api/recipes/1/comments").get_json()["items"]
+        comment_id = next(item["id"] for item in comments if item["content"] == "很好吃！")
+        liked_comment = self.client.post(f"/api/comments/{comment_id}/like", headers=headers)
+        self.assertEqual(liked_comment.status_code, 200)
+        self.assertTrue(liked_comment.get_json()["active"])
+        self.assertEqual(liked_comment.get_json()["count"], 1)
+        detail_comment = next(item for item in self.client.get("/api/recipes/1").get_json()["data"]["comments"] if item["id"] == comment_id)
+        self.assertEqual(detail_comment["user_id"], self.client.get("/api/auth/me").get_json()["user"]["id"])
+        self.assertTrue(detail_comment["is_liked"])
         self.assertEqual(self.client.get("/api/users/me/favorites").status_code, 200)
+        self.assertEqual(self.client.post("/api/recipes/99999/like", headers=headers).status_code, 404)
+        self.assertEqual(self.client.post("/api/comments/99999/like", headers=headers).status_code, 404)
+        self.assertEqual(self.client.delete("/api/admin/recipes/1", headers=headers).status_code, 403)
+        self.assertEqual(self.client.delete(f"/api/comments/{comment_id}", headers=headers).status_code, 200)
 
     def test_recipe_creation_requires_auth_and_enters_pending(self):
         response = self.client.post("/api/recipes", json={"title": "无权限"})
@@ -65,6 +93,9 @@ class TestFoodLabAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.get_json()["data"]["status"], "pending")
         self.assertNotIn("meal_type", response.get_json()["data"])
+        bypass = self.client.put(f"/api/recipes/{response.get_json()['data']['id']}", json={"status": "published"}, headers={"X-CSRF-Token": token})
+        self.assertEqual(bypass.status_code, 200)
+        self.assertEqual(bypass.get_json()["data"]["status"], "pending")
         uploaded = self.client.post("/api/recipes", data={
             "title": "带步骤图片的菜谱", "description": "上传测试", "cuisine": "西餐", "servings": "99", "status": "draft",
             "ingredients": '[{"name":"面粉","amount":"100","unit":"克"}]',
@@ -115,18 +146,49 @@ class TestFoodLabAPI(unittest.TestCase):
         headers = {"X-CSRF-Token": self.csrf()}
         self.assertEqual(self.client.get("/api/admin/stats").status_code, 200)
         self.assertEqual(self.client.get("/api/admin/users").status_code, 200)
+        self.assertEqual(self.client.patch("/api/admin/recipes/1", json={"status": "hidden"}, headers=headers).status_code, 400)
+        hidden = self.client.patch("/api/admin/recipes/1", json={"status": "hidden", "reason": "内容需要复核"}, headers=headers)
+        self.assertEqual(hidden.status_code, 200)
+        self.assertEqual(hidden.get_json()["status"], "hidden")
+        self.assertEqual(self.client.get("/api/recipes").get_json()["pagination"]["total"], 2)
+        self.assertEqual(self.client.get("/api/recipes/1").status_code, 200)
+        hidden_item = self.client.get("/api/admin/recipes?status=hidden").get_json()["items"][0]
+        self.assertEqual(hidden_item["rejection_reason"], "内容需要复核")
+        self.assertTrue(hidden_item["reviewed_at"])
+        self.assertEqual(hidden_item["reviewer"], "FoodLab 管理员")
+        restored = self.client.patch("/api/admin/recipes/1", json={"status": "published"}, headers=headers)
+        self.assertEqual(restored.status_code, 200)
+        self.assertEqual(restored.get_json()["rejection_reason"], "")
         featured = self.client.patch("/api/admin/recipes/1/featured", json={"is_featured": False}, headers=headers)
         self.assertEqual(featured.status_code, 200)
         self.assertFalse(featured.get_json()["is_featured"])
         featured = self.client.patch("/api/admin/recipes/1/featured", json={"is_featured": True}, headers=headers)
         self.assertEqual(featured.status_code, 200)
         self.assertTrue(featured.get_json()["is_featured"])
+        deleted = self.client.delete("/api/admin/recipes/3", headers=headers)
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(len(self.client.get("/api/admin/recipes").get_json()["items"]), 2)
         self.assertEqual(self.client.post("/api/admin/categories", json={"name": "测试分类", "slug": "test-category"}, headers=headers).status_code, 405)
 
     def test_seeded_regular_user_can_login(self):
         response = self.client.post("/api/auth/login", json={"identity": "user@foodlab.local", "password": "FoodLab-user-123"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["role"], "user")
+
+    def test_system_messages(self):
+        self.assertEqual(self.client.get("/api/messages").status_code, 401)
+        self.register("message-user")
+        headers = {"X-CSRF-Token": self.csrf()}
+        inbox = self.client.get("/api/messages").get_json()
+        self.assertEqual(len(inbox["items"]), 1)
+        self.assertEqual(inbox["unread"], 1)
+        self.assertNotIn("followers", inbox)
+        self.assertNotIn("direct", inbox)
+        self.assertEqual(self.client.post("/api/messages/direct", json={"recipient": "FoodLab 管理员", "content": "你好"}, headers=headers).status_code, 405)
+        marked = self.client.patch("/api/messages/read", headers=headers)
+        self.assertEqual(marked.status_code, 200)
+        self.assertEqual(self.client.get("/api/messages").get_json()["unread"], 0)
+        self.assertEqual(self.client.get("/api/messages/unread-count").get_json()["count"], 0)
 
 
 if __name__ == "__main__":

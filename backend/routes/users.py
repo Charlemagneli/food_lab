@@ -91,8 +91,27 @@ def profile(user_id):
     user_data = dict(user)
     user_data["interests"] = json.loads(user_data.get("interests") or "[]")
     user_data["followers"] = db.execute("SELECT count(*) FROM followers WHERE followed_id=?", (user_id,)).fetchone()[0]
+    viewer_id = session.get("user_id")
+    user_data["is_following"] = bool(viewer_id and db.execute("SELECT 1 FROM followers WHERE follower_id=? AND followed_id=?", (viewer_id, user_id)).fetchone())
     user_data["recipes"] = recipes
     db.close(); return jsonify(user=user_data, counts=counts, recipes=recipes)
+
+
+@bp.post("/<int:user_id>/follow")
+def follow_user(user_id):
+    uid = session.get("user_id")
+    if not uid: return jsonify(error="请先登录"), 401
+    if uid == user_id: return jsonify(error="不能关注自己"), 400
+    db = connect(current_app.config["DATABASE_PATH"])
+    if not db.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone(): db.close(); return jsonify(error="用户不存在"), 404
+    exists = db.execute("SELECT 1 FROM followers WHERE follower_id=? AND followed_id=?", (uid, user_id)).fetchone()
+    if exists:
+        db.execute("DELETE FROM followers WHERE follower_id=? AND followed_id=?", (uid, user_id)); active = False
+    else:
+        from backend.database.db import now_iso
+        db.execute("INSERT INTO followers(follower_id,followed_id,created_at) VALUES (?,?,?)", (uid, user_id, now_iso())); active = True
+    db.commit(); count = db.execute("SELECT count(*) FROM followers WHERE followed_id=?", (user_id,)).fetchone()[0]; db.close()
+    return jsonify(active=active, count=count)
 
 
 @bp.get("/me/favorites")
