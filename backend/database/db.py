@@ -106,6 +106,9 @@ def seed(db):
     admin_hash = generate_password_hash("FoodLab-admin-123")
     db.execute("INSERT OR IGNORE INTO users(username,email,password_hash,bio,role,created_at) VALUES (?,?,?,?,?,?)",
                ("FoodLab 管理员", "admin@foodlab.local", admin_hash, "守护食研所社区", "admin", now_iso()))
+    test_user_hash = generate_password_hash("FoodLab-user-123")
+    db.execute("INSERT OR IGNORE INTO users(username,email,password_hash,bio,role,created_at) VALUES (?,?,?,?,?,?)",
+               ("FoodLab 测试用户", "user@foodlab.local", test_user_hash, "用于体验食研所普通用户功能", "user", now_iso()))
     existing_admin = db.execute("SELECT password_hash FROM users WHERE email=?", ("admin@foodlab.local",)).fetchone()
     if existing_admin and "$foodlab$" in existing_admin["password_hash"]:
         db.execute("UPDATE users SET password_hash=? WHERE email=?", (admin_hash, "admin@foodlab.local"))

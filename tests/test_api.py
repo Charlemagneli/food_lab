@@ -92,6 +92,11 @@ class TestFoodLabAPI(unittest.TestCase):
         category_id = created.get_json()["data"]["id"]
         self.assertEqual(self.client.delete(f"/api/admin/categories/{category_id}", headers=headers).status_code, 200)
 
+    def test_seeded_regular_user_can_login(self):
+        response = self.client.post("/api/auth/login", json={"identity": "user@foodlab.local", "password": "FoodLab-user-123"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["role"], "user")
+
 
 if __name__ == "__main__":
     unittest.main()

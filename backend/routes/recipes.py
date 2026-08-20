@@ -163,6 +163,9 @@ def update_recipe(recipe_id):
     if not row: db.close(); return jsonify(error="菜谱不存在"), 404
     user = db.execute("SELECT role FROM users WHERE id=?", (uid,)).fetchone()
     if row["author_id"] != uid and user["role"] != "admin": db.close(); return jsonify(error="没有权限"), 403
+    raw_json = request.get_json(silent=True) if not (request.mimetype and request.mimetype.startswith("multipart/")) else None
+    if raw_json and set(raw_json).issubset({"status"}) and raw_json.get("status") in {"draft", "pending", "published", "rejected"}:
+        db.execute("UPDATE recipes SET status=?,updated_at=? WHERE id=?", (raw_json["status"], now_iso(), recipe_id)); db.commit(); item = recipe_detail(db, recipe_id, uid); db.close(); return jsonify(data=item)
     data = form_data(); now = now_iso(); status = "draft" if data.get("status") == "draft" else ("pending" if user["role"] != "admin" else data.get("status", row["status"]))
     db.execute("""UPDATE recipes SET title=?,description=?,cover_image=COALESCE(?,cover_image),cuisine=?,meal_type=?,category_id=?,difficulty=?,prep_time=?,cook_time=?,servings=?,status=?,updated_at=? WHERE id=?""", (str(data.get("title", row["title"])).strip(), str(data.get("description", row["description"])), data.get("cover_image"), str(data.get("cuisine", row["cuisine"])), str(data.get("meal_type", row["meal_type"])), data.get("category_id") or None, str(data.get("difficulty", row["difficulty"])), int(data.get("prep_time", row["prep_time"]) or 0), int(data.get("cook_time", row["cook_time"]) or 0), float(data.get("servings", row["servings"]) or 2), status, now, recipe_id))
     replace_relations(db, recipe_id, data); db.commit(); item = recipe_detail(db, recipe_id, uid); db.close(); return jsonify(data=item)
