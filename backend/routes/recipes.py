@@ -25,8 +25,10 @@ def save_file(file):
     if not file or not file.filename:
         return None
     ext = os.path.splitext(secure_filename(file.filename))[1].lower()
-    if ext not in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
-        return None
+    mime_ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "image/avif": ".avif"}
+    if ext not in {".jpg", ".jpeg", ".jfif", ".png", ".webp", ".gif", ".avif"}:
+        ext = mime_ext.get((file.mimetype or "").lower())
+    if not ext: return None
     name = f"{uuid.uuid4().hex}{ext}"
     folder = current_app.config["UPLOAD_FOLDER"]
     os.makedirs(folder, exist_ok=True)
@@ -39,6 +41,10 @@ def form_data():
         data = request.form.to_dict()
         data["ingredients"] = json.loads(data.get("ingredients", "[]"))
         data["steps"] = json.loads(data.get("steps", "[]"))
+        for index, step in enumerate(data["steps"]):
+            image_url = save_file(request.files.get(f"step_image_{index}"))
+            if image_url:
+                step["image_url"] = image_url
         data["tags"] = [x.strip() for x in data.get("tags", "").split(",") if x.strip()]
         data["cover_image"] = save_file(request.files.get("cover_image")) or data.get("cover_image")
         return data

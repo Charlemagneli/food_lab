@@ -65,6 +65,17 @@ class TestFoodLabAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.get_json()["data"]["status"], "pending")
         self.assertNotIn("meal_type", response.get_json()["data"])
+        uploaded = self.client.post("/api/recipes", data={
+            "title": "带步骤图片的菜谱", "description": "上传测试", "cuisine": "西餐", "servings": "2", "status": "draft",
+            "ingredients": '[{"name":"面粉","amount":"100","unit":"克"}]',
+            "steps": '[{"instruction":"混合食材"}]', "tags": "烘焙",
+            "cover_image": (BytesIO(b"cover-image"), "cover.png", "image/png"),
+            "step_image_0": (BytesIO(b"step-image"), "step.webp", "image/webp"),
+        }, headers={"X-CSRF-Token": token}, content_type="multipart/form-data")
+        self.assertEqual(uploaded.status_code, 201)
+        uploaded_data = uploaded.get_json()["data"]
+        self.assertTrue(uploaded_data["cover_image"].startswith("/images/uploads/"))
+        self.assertTrue(uploaded_data["steps"][0]["image_url"].endswith(".webp"))
         self.assertEqual(self.client.get("/api/recipes").get_json()["pagination"]["total"], 3)
 
     def test_profile_and_password_settings(self):
