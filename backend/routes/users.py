@@ -76,7 +76,7 @@ def my_recipes():
     if not uid:
         return jsonify(error="请先登录"), 401
     db = connect(current_app.config["DATABASE_PATH"])
-    rows = [dict(x) for x in db.execute("SELECT id,title,description,cover_image,cuisine,meal_type,prep_time,cook_time,status,is_featured,likes_count,favorites_count FROM recipes WHERE author_id=? ORDER BY updated_at DESC", (uid,)).fetchall()]
+    rows = [dict(x) for x in db.execute("SELECT id,title,description,cover_image,cuisine,prep_time,cook_time,status,is_featured,likes_count,favorites_count FROM recipes WHERE author_id=? ORDER BY updated_at DESC", (uid,)).fetchall()]
     db.close()
     return jsonify(items=rows)
 
@@ -86,7 +86,7 @@ def profile(user_id):
     db = connect(current_app.config["DATABASE_PATH"])
     user = db.execute("SELECT id,username,avatar_url,bio,interests,role,created_at FROM users WHERE id=?", (user_id,)).fetchone()
     if not user: db.close(); return jsonify(error="用户不存在"), 404
-    recipes = [dict(x) for x in db.execute("SELECT id,title,description,cover_image,cuisine,meal_type,prep_time,cook_time,is_featured,likes_count,favorites_count FROM recipes WHERE author_id=? AND status='published' ORDER BY created_at DESC", (user_id,)).fetchall()]
+    recipes = [dict(x) for x in db.execute("SELECT id,title,description,cover_image,cuisine,prep_time,cook_time,is_featured,likes_count,favorites_count FROM recipes WHERE author_id=? AND status='published' ORDER BY created_at DESC", (user_id,)).fetchall()]
     counts = {"recipes": db.execute("SELECT count(*) FROM recipes WHERE author_id=? AND status='published'", (user_id,)).fetchone()[0], "favorites": db.execute("SELECT count(*) FROM favorites WHERE user_id=?", (user_id,)).fetchone()[0], "likes": db.execute("SELECT count(*) FROM likes l JOIN recipes r ON r.id=l.recipe_id WHERE r.author_id=?", (user_id,)).fetchone()[0]}
     user_data = dict(user)
     user_data["interests"] = json.loads(user_data.get("interests") or "[]")
@@ -98,7 +98,7 @@ def profile(user_id):
 @bp.get("/me/favorites")
 def my_favorites():
     if not session.get("user_id"): return jsonify(error="请先登录"), 401
-    db = connect(current_app.config["DATABASE_PATH"]); rows = [dict(x) for x in db.execute("SELECT r.id,r.title,r.description,r.cover_image,r.cuisine,r.meal_type,r.prep_time,r.cook_time,r.is_featured,r.likes_count,r.favorites_count FROM favorites f JOIN recipes r ON r.id=f.recipe_id WHERE f.user_id=? ORDER BY f.created_at DESC", (session["user_id"],)).fetchall()]; db.close(); return jsonify(items=rows)
+    db = connect(current_app.config["DATABASE_PATH"]); rows = [dict(x) for x in db.execute("SELECT r.id,r.title,r.description,r.cover_image,r.cuisine,r.prep_time,r.cook_time,r.is_featured,r.likes_count,r.favorites_count FROM favorites f JOIN recipes r ON r.id=f.recipe_id WHERE f.user_id=? ORDER BY f.created_at DESC", (session["user_id"],)).fetchall()]; db.close(); return jsonify(items=rows)
 
 
 @bp.get("/favorites")

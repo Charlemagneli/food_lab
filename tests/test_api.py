@@ -59,9 +59,12 @@ class TestFoodLabAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
         self.register("creator")
         token = self.csrf()
-        response = self.client.post("/api/recipes", json={"title": "我的新菜", "description": "测试", "ingredients": [{"name": "土豆", "amount": "2", "unit": "个"}], "steps": [{"instruction": "切块"}], "tags": ["家常菜"]}, headers={"X-CSRF-Token": token})
+        invalid = self.client.post("/api/recipes", json={"title": "任意菜系", "cuisine": "自定义类型"}, headers={"X-CSRF-Token": token})
+        self.assertEqual(invalid.status_code, 400)
+        response = self.client.post("/api/recipes", json={"title": "我的新菜", "description": "测试", "cuisine": "中餐", "meal_type": "该字段应被忽略", "ingredients": [{"name": "土豆", "amount": "2", "unit": "个"}], "steps": [{"instruction": "切块"}], "tags": ["家常菜"]}, headers={"X-CSRF-Token": token})
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.get_json()["data"]["status"], "pending")
+        self.assertNotIn("meal_type", response.get_json()["data"])
         self.assertEqual(self.client.get("/api/recipes").get_json()["pagination"]["total"], 3)
 
     def test_profile_and_password_settings(self):

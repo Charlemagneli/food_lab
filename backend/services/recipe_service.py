@@ -9,6 +9,7 @@ def recipe_summary(row):
     item["author_avatar"] = item.pop("author_avatar", None)
     item["category"] = item.pop("category_name", None)
     item.pop("difficulty", None)
+    item.pop("meal_type", None)
     # 烹饪时间不再由用户设置；保留字段仅为兼容旧数据，展示时间取准备时间。
     item["total_time"] = int(item.get("prep_time", 0) or 0)
     item["tags"] = json_load(item.pop("tag_list", "[]"))

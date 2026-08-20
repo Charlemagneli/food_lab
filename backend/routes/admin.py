@@ -31,7 +31,7 @@ def pending_recipes():
         params.append(status)
     db = connect(current_app.config["DATABASE_PATH"])
     rows = [dict(x) for x in db.execute(f"""SELECT r.id,r.title,r.description,r.cover_image,r.status,r.is_featured,
-        r.cuisine,r.meal_type,r.prep_time,r.cook_time,r.created_at,r.updated_at,u.username AS author
+        r.cuisine,r.prep_time,r.cook_time,r.created_at,r.updated_at,u.username AS author
         FROM recipes r JOIN users u ON u.id=r.author_id{where} ORDER BY
         CASE r.status WHEN 'pending' THEN 0 WHEN 'published' THEN 1 ELSE 2 END, r.updated_at DESC""", params).fetchall()]
     db.close()
