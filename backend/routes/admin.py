@@ -69,6 +69,27 @@ def moderate_recipe(recipe_id):
     return jsonify(message="菜谱设置已更新", status=row["status"], is_featured=bool(row["is_featured"]))
 
 
+@bp.patch("/recipes/<int:recipe_id>/featured")
+def set_recipe_featured(recipe_id):
+    """独立的编辑精选开关接口，避免和审核状态更新混用。"""
+    _, error = guard()
+    if error: return error
+    payload = request.get_json(silent=True) or {}
+    if "is_featured" not in payload:
+        return jsonify(error="请提供 is_featured（true 或 false）"), 400
+    featured = payload["is_featured"]
+    if not isinstance(featured, (bool, int)):
+        return jsonify(error="编辑精选状态无效"), 400
+    db = connect(current_app.config["DATABASE_PATH"])
+    if not db.execute("SELECT 1 FROM recipes WHERE id=?", (recipe_id,)).fetchone():
+        db.close(); return jsonify(error="菜谱不存在"), 404
+    db.execute("UPDATE recipes SET is_featured=?,updated_at=? WHERE id=?", (1 if bool(featured) else 0, now_iso(), recipe_id))
+    db.commit()
+    row = db.execute("SELECT is_featured FROM recipes WHERE id=?", (recipe_id,)).fetchone()
+    db.close()
+    return jsonify(message="编辑精选状态已更新", recipe_id=recipe_id, is_featured=bool(row["is_featured"]))
+
+
 @bp.get("/users")
 def users():
     _, error = guard()

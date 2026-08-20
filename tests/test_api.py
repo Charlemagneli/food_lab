@@ -88,6 +88,12 @@ class TestFoodLabAPI(unittest.TestCase):
         headers = {"X-CSRF-Token": self.csrf()}
         self.assertEqual(self.client.get("/api/admin/stats").status_code, 200)
         self.assertEqual(self.client.get("/api/admin/users").status_code, 200)
+        featured = self.client.patch("/api/admin/recipes/1/featured", json={"is_featured": False}, headers=headers)
+        self.assertEqual(featured.status_code, 200)
+        self.assertFalse(featured.get_json()["is_featured"])
+        featured = self.client.patch("/api/admin/recipes/1/featured", json={"is_featured": True}, headers=headers)
+        self.assertEqual(featured.status_code, 200)
+        self.assertTrue(featured.get_json()["is_featured"])
         created = self.client.post("/api/admin/categories", json={"name": "测试分类", "slug": "test-category"}, headers=headers)
         self.assertEqual(created.status_code, 201)
         category_id = created.get_json()["data"]["id"]

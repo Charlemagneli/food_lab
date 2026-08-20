@@ -22,7 +22,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         button.disabled = true;
         try {
           const body = button.dataset.action === 'featured' ? { is_featured: button.dataset.value === 'true' } : { status: button.dataset.value };
-          await FoodLab.api('/api/admin/recipes/' + button.dataset.id, { method: 'PATCH', body });
+          const endpoint = button.dataset.action === 'featured' ? '/api/admin/recipes/' + button.dataset.id + '/featured' : '/api/admin/recipes/' + button.dataset.id;
+          await FoodLab.api(endpoint, { method: 'PATCH', body });
           FoodLab.toast(button.dataset.action === 'featured' ? (body.is_featured ? '已设为编辑精选' : '已取消编辑精选') : '审核状态已更新');
           await Promise.all([loadStats(), loadRecipes(currentStatus)]);
         } catch (error) {
