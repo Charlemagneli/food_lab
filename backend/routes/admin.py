@@ -4,6 +4,14 @@ from backend.database.db import connect, now_iso
 bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 
 
+def review_notification(status, title, reason):
+    if status == "published":
+        return f"你的菜谱《{title}》已通过审核，现已公开发布。"
+    if status == "rejected":
+        return f"你的菜谱《{title}》未通过审核。原因：{reason}。请修改后重新提交。"
+    return None
+
+
 def guard():
     uid = session.get("user_id")
     if not uid: return None, (jsonify(error="请先登录"), 401)
@@ -60,7 +68,8 @@ def moderate_recipe(recipe_id):
     if status is None and featured is None:
         return jsonify(error="请提供审核状态或编辑精选状态"), 400
     db = connect(current_app.config["DATABASE_PATH"])
-    if not db.execute("SELECT 1 FROM recipes WHERE id=?", (recipe_id,)).fetchone():
+    recipe = db.execute("SELECT author_id,title,status FROM recipes WHERE id=?", (recipe_id,)).fetchone()
+    if not recipe:
         db.close(); return jsonify(error="菜谱不存在"), 404
     updates, params = [], []
     if status is not None:
@@ -75,10 +84,14 @@ def moderate_recipe(recipe_id):
         updates.append("is_featured=?"); params.append(1 if bool(featured) else 0)
     updates.append("updated_at=?"); params.append(now_iso()); params.append(recipe_id)
     db.execute(f"UPDATE recipes SET {', '.join(updates)} WHERE id=?", params)
+    notification = review_notification(status, recipe["title"], reason) if status != recipe["status"] else None
+    if notification:
+        db.execute("""INSERT INTO messages(sender_id,recipient_id,message_type,content,created_at)
+            VALUES (NULL,?,'platform',?,?)""", (recipe["author_id"], notification, now_iso()))
     db.commit()
     row = db.execute("SELECT status,is_featured,reviewed_at,rejection_reason FROM recipes WHERE id=?", (recipe_id,)).fetchone()
     db.close()
-    return jsonify(message="菜谱设置已更新", status=row["status"], is_featured=bool(row["is_featured"]), reviewed_at=row["reviewed_at"], rejection_reason=row["rejection_reason"])
+    return jsonify(message="菜谱设置已更新", status=row["status"], is_featured=bool(row["is_featured"]), reviewed_at=row["reviewed_at"], rejection_reason=row["rejection_reason"], notification_sent=bool(notification))
 
 
 @bp.delete("/recipes/<int:recipe_id>")

@@ -185,10 +185,30 @@ class TestFoodLabAPI(unittest.TestCase):
         self.assertNotIn("followers", inbox)
         self.assertNotIn("direct", inbox)
         self.assertEqual(self.client.post("/api/messages/direct", json={"recipient": "FoodLab 管理员", "content": "你好"}, headers=headers).status_code, 405)
+        recipe_payload = {"description": "审核通知测试", "cuisine": "中餐", "ingredients": [{"name": "测试食材", "amount": "1", "unit": "份"}], "steps": [{"instruction": "完成测试步骤"}]}
+        approved_id = self.client.post("/api/recipes", json={"title": "等待通过的菜谱", **recipe_payload}, headers=headers).get_json()["data"]["id"]
+        rejected_id = self.client.post("/api/recipes", json={"title": "等待修改的菜谱", **recipe_payload}, headers=headers).get_json()["data"]["id"]
         marked = self.client.patch("/api/messages/read", headers=headers)
         self.assertEqual(marked.status_code, 200)
         self.assertEqual(self.client.get("/api/messages").get_json()["unread"], 0)
-        self.assertEqual(self.client.get("/api/messages/unread-count").get_json()["count"], 0)
+        self.client.post("/api/auth/logout", headers=headers)
+        self.client.post("/api/auth/login", json={"identity": "admin@foodlab.local", "password": "FoodLab-admin-123"})
+        admin_headers = {"X-CSRF-Token": self.csrf()}
+        approved = self.client.patch(f"/api/admin/recipes/{approved_id}", json={"status": "published"}, headers=admin_headers)
+        rejected = self.client.patch(f"/api/admin/recipes/{rejected_id}", json={"status": "rejected", "reason": "步骤说明不够完整"}, headers=admin_headers)
+        self.assertTrue(approved.get_json()["notification_sent"])
+        self.assertTrue(rejected.get_json()["notification_sent"])
+        duplicate = self.client.patch(f"/api/admin/recipes/{rejected_id}", json={"status": "rejected", "reason": "步骤说明不够完整"}, headers=admin_headers)
+        self.assertFalse(duplicate.get_json()["notification_sent"])
+        self.client.post("/api/auth/logout", headers=admin_headers)
+        self.client.post("/api/auth/login", json={"identity": "message-user", "password": "secret1"})
+        user_inbox = self.client.get("/api/messages").get_json()
+        contents = [item["content"] for item in user_inbox["items"]]
+        self.assertEqual(user_inbox["unread"], 2)
+        self.assertEqual(self.client.get("/api/messages/unread-count").get_json()["count"], 2)
+        self.assertTrue(any("等待通过的菜谱" in content and "已通过审核" in content for content in contents))
+        self.assertTrue(any("等待修改的菜谱" in content and "步骤说明不够完整" in content for content in contents))
+        self.assertEqual(sum("等待修改的菜谱" in content for content in contents), 1)
 
 
 if __name__ == "__main__":
