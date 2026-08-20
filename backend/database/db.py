@@ -129,7 +129,7 @@ def seed(db):
     cat = db.execute("SELECT id FROM categories WHERE slug='chinese'").fetchone()[0]
     if not db.execute("SELECT 1 FROM recipes LIMIT 1").fetchone():
         recipes = [
-            ("番茄炒蛋", "酸甜开胃的家常快手菜，十分钟就能端上餐桌。", "", author, "中国菜", "晚餐", cat, "简单", 5, 10, 2, "published", 1, 128, 24, 18),
+            ("番茄炒蛋", "酸甜开胃的家常快手菜，十分钟就能端上餐桌。", "", author, "中餐", "晚餐", cat, "简单", 5, 10, 2, "published", 1, 128, 24, 18),
             ("香煎鸡胸肉沙拉", "清爽高蛋白的一人食，适合工作日的轻盈午餐。", "", author, "西餐", "午餐", None, "简单", 10, 15, 1, "published", 0, 86, 19, 12),
             ("南瓜奶油浓汤", "烤南瓜与奶油交织出的温暖滋味。", "", author, "西餐", "晚餐", None, "中等", 15, 25, 3, "published", 0, 72, 16, 9),
         ]
