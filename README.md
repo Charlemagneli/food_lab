@@ -40,7 +40,7 @@
 - 设置或取消“编辑精选”
 - 后台数据概览
 
-管理员用户管理、评论管理和分类管理已经具备后端接口，但完整的后台可视化页面仍待后续完善。
+管理员用户和评论管理已提供后台能力；分类属于系统基础数据，当前不提供管理员新增/删除接口，避免误操作破坏分类数据。
 
 ## 技术栈
 
@@ -148,7 +148,7 @@ python -m unittest discover -v
 - 菜谱创建及审核状态
 - 搜索和公开菜谱查询
 - 个人资料和密码修改
-- 管理员权限与分类管理
+- 管理员权限与基础数据保护
 - 默认测试账号登录
 
 ## Docker 启动
@@ -230,6 +230,8 @@ SQLite 数据和上传目录使用 Docker 命名卷。普通的 `docker compose 
 | `GET /api/admin/recipes` | 管理员菜谱列表 |
 | `PATCH /api/admin/recipes/:id` | 审核或设置编辑精选 |
 | `PATCH /api/admin/recipes/:id/featured` | 独立设置或取消编辑精选 |
+
+分类仅提供公开读取接口 `GET /api/categories`，不提供管理员新增或删除接口。
 
 除登录和注册外，写请求使用 Cookie 会话与 CSRF 保护。浏览器端会先请求 `/api/auth/csrf`，再通过 `X-CSRF-Token` 请求头提交令牌。
 

@@ -94,10 +94,7 @@ class TestFoodLabAPI(unittest.TestCase):
         featured = self.client.patch("/api/admin/recipes/1/featured", json={"is_featured": True}, headers=headers)
         self.assertEqual(featured.status_code, 200)
         self.assertTrue(featured.get_json()["is_featured"])
-        created = self.client.post("/api/admin/categories", json={"name": "测试分类", "slug": "test-category"}, headers=headers)
-        self.assertEqual(created.status_code, 201)
-        category_id = created.get_json()["data"]["id"]
-        self.assertEqual(self.client.delete(f"/api/admin/categories/{category_id}", headers=headers).status_code, 200)
+        self.assertEqual(self.client.post("/api/admin/categories", json={"name": "测试分类", "slug": "test-category"}, headers=headers).status_code, 405)
 
     def test_seeded_regular_user_can_login(self):
         response = self.client.post("/api/auth/login", json={"identity": "user@foodlab.local", "password": "FoodLab-user-123"})

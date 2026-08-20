@@ -34,14 +34,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   };
   const loadManagement = async () => {
-    const [users, comments, categories] = await Promise.all([FoodLab.api('/api/admin/users'), FoodLab.api('/api/admin/comments'), FoodLab.api('/api/categories')]);
+    const [users, comments] = await Promise.all([FoodLab.api('/api/admin/users'), FoodLab.api('/api/admin/comments')]);
     document.querySelector('#admin-users').innerHTML = users.items.map(user => `<div class="admin-simple-row"><div><strong>${FoodLab.escape(user.username)}</strong><small>${FoodLab.escape(user.email)} · ${FoodLab.escape(user.role)}</small></div>${user.role !== 'admin' ? `<button class="btn ghost" data-delete-user="${user.id}">删除</button>` : '<span class="status-pill">管理员</span>'}</div>`).join('') || '<div class="empty">暂无用户。</div>';
     document.querySelector('#admin-comments').innerHTML = comments.items.length ? comments.items.map(comment => `<div class="admin-simple-row"><div><strong>${FoodLab.escape(comment.username)} · ${FoodLab.escape(comment.title)}</strong><small>${FoodLab.escape(comment.content)}</small></div><button class="btn ghost" data-delete-comment="${comment.id}">删除</button></div>`).join('') : '<div class="empty">暂无评论。</div>';
-    const hidden = new Set(['chinese']);
-    document.querySelector('#admin-categories').innerHTML = categories.items.map(category => `<span class="admin-category-chip">${FoodLab.escape(category.name)}${hidden.has(category.slug) ? '' : `<button type="button" data-delete-category="${category.id}" aria-label="删除 ${FoodLab.escape(category.name)}">×</button>`}</span>`).join('');
     document.querySelectorAll('[data-delete-user]').forEach(button => button.onclick = async () => { if (!confirm('确认删除这个用户吗？')) return; try { await FoodLab.api('/api/admin/users/' + button.dataset.deleteUser, { method: 'DELETE' }); button.closest('.admin-simple-row').remove(); FoodLab.toast('用户已删除'); } catch (error) { FoodLab.toast(error.message); } });
     document.querySelectorAll('[data-delete-comment]').forEach(button => button.onclick = async () => { try { await FoodLab.api('/api/comments/' + button.dataset.deleteComment, { method: 'DELETE' }); button.closest('.admin-simple-row').remove(); FoodLab.toast('评论已删除'); } catch (error) { FoodLab.toast(error.message); } });
-    document.querySelectorAll('[data-delete-category]').forEach(button => button.onclick = async () => { try { await FoodLab.api('/api/admin/categories/' + button.dataset.deleteCategory, { method: 'DELETE' }); button.closest('.admin-category-chip').remove(); FoodLab.toast('分类已删除'); } catch (error) { FoodLab.toast(error.message); } });
   };
   try {
     await FoodLab.loadUser();
@@ -57,7 +54,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         try { await loadRecipes(tab.dataset.status); } catch (error) { FoodLab.toast(error.message); }
       };
     });
-    document.querySelector('#category-form').onsubmit = async event => { event.preventDefault(); try { await FoodLab.api('/api/admin/categories', { method: 'POST', body: Object.fromEntries(new FormData(event.target)) }); event.target.reset(); await loadManagement(); FoodLab.toast('分类已新增'); } catch (error) { FoodLab.toast(error.message); } };
   } catch (error) {
     FoodLab.toast(error.message);
   }

@@ -110,24 +110,3 @@ def all_comments():
     _, error = guard()
     if error: return error
     db = connect(current_app.config["DATABASE_PATH"]); rows = [dict(x) for x in db.execute("SELECT c.id,c.content,c.created_at,u.username,r.title FROM comments c JOIN users u ON u.id=c.user_id JOIN recipes r ON r.id=c.recipe_id ORDER BY c.created_at DESC").fetchall()]; db.close(); return jsonify(items=rows)
-
-
-@bp.post("/categories")
-def create_category():
-    _, error = guard()
-    if error: return error
-    data = request.get_json(silent=True) or {}; name = str(data.get("name", "")).strip(); slug = str(data.get("slug", name.lower().replace(" ", "-"))).strip()
-    if not name: return jsonify(error="分类名称不能为空"), 400
-    db = connect(current_app.config["DATABASE_PATH"])
-    try:
-        db.execute("INSERT INTO categories(name,slug) VALUES (?,?)", (name, slug)); db.commit()
-    except Exception:
-        db.close(); return jsonify(error="分类已存在"), 409
-    row = db.execute("SELECT * FROM categories WHERE slug=?", (slug,)).fetchone(); db.close(); return jsonify(data=dict(row)), 201
-
-
-@bp.delete("/categories/<int:category_id>")
-def delete_category(category_id):
-    _, error = guard()
-    if error: return error
-    db = connect(current_app.config["DATABASE_PATH"]); db.execute("DELETE FROM categories WHERE id=?", (category_id,)); db.commit(); db.close(); return jsonify(message="分类已删除")
