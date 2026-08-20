@@ -57,8 +57,6 @@ def list_query(db, include_unpublished=False):
             where.append(f"{col}=?"); params.append(request.args[field])
     if request.args.get("category"):
         where.append("(c.slug=? OR c.name=?)"); params += [request.args["category"], request.args["category"]]
-    if request.args.get("max_time") and request.args["max_time"].isdigit():
-        where.append("(r.prep_time+r.cook_time)<=?"); params.append(int(request.args["max_time"]))
     sort = request.args.get("sort", "latest")
     order = {"latest": "r.created_at DESC", "popular": "r.views_count DESC", "likes": "r.likes_count DESC", "favorites": "r.favorites_count DESC", "views": "r.views_count DESC"}.get(sort, "r.created_at DESC")
     try:
@@ -86,10 +84,6 @@ def categories():
     rows = [dict(x) for x in db.execute("SELECT * FROM categories ORDER BY id").fetchall() if x["slug"] not in hidden_legacy]
     rank = {slug: index for index, slug in enumerate(order)}
     rows.sort(key=lambda row: (rank.get(row["slug"], len(order)), row["name"]))
-    chinese = {"chinese"}
-    international = {"western", "japanese", "korean", "southeast-asian"}
-    for row in rows:
-        row["group"] = "中国主要菜系" if row["slug"] in chinese else ("国际菜系" if row["slug"] in international else "饮食类型")
     db.close()
     return jsonify(items=rows)
 
@@ -150,7 +144,7 @@ def create_recipe():
     status = "draft" if data.get("status") == "draft" else "pending"
     now = now_iso()
     cur = db.execute("""INSERT INTO recipes(title,description,cover_image,author_id,cuisine,meal_type,category_id,difficulty,prep_time,cook_time,servings,status,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (title, str(data.get("description", "")), data.get("cover_image"), uid, str(data.get("cuisine", "")), str(data.get("meal_type", "")), data.get("category_id") or None, str(data.get("difficulty", "简单")), int(data.get("prep_time", 0) or 0), int(data.get("cook_time", 0) or 0), float(data.get("servings", 2) or 2), status, now, now))
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (title, str(data.get("description", "")), data.get("cover_image"), uid, str(data.get("cuisine", "")), str(data.get("meal_type", "")), data.get("category_id") or None, str(data.get("difficulty", "简单")), 0, 0, float(data.get("servings", 2) or 2), status, now, now))
     replace_relations(db, cur.lastrowid, data); db.commit(); item = recipe_detail(db, cur.lastrowid, uid); db.close()
     return jsonify(data=item), 201
 
@@ -167,7 +161,7 @@ def update_recipe(recipe_id):
     if raw_json and set(raw_json).issubset({"status"}) and raw_json.get("status") in {"draft", "pending", "published", "rejected"}:
         db.execute("UPDATE recipes SET status=?,updated_at=? WHERE id=?", (raw_json["status"], now_iso(), recipe_id)); db.commit(); item = recipe_detail(db, recipe_id, uid); db.close(); return jsonify(data=item)
     data = form_data(); now = now_iso(); status = "draft" if data.get("status") == "draft" else ("pending" if user["role"] != "admin" else data.get("status", row["status"]))
-    db.execute("""UPDATE recipes SET title=?,description=?,cover_image=COALESCE(?,cover_image),cuisine=?,meal_type=?,category_id=?,difficulty=?,prep_time=?,cook_time=?,servings=?,status=?,updated_at=? WHERE id=?""", (str(data.get("title", row["title"])).strip(), str(data.get("description", row["description"])), data.get("cover_image"), str(data.get("cuisine", row["cuisine"])), str(data.get("meal_type", row["meal_type"])), data.get("category_id") or None, str(data.get("difficulty", row["difficulty"])), int(data.get("prep_time", row["prep_time"]) or 0), int(data.get("cook_time", row["cook_time"]) or 0), float(data.get("servings", row["servings"]) or 2), status, now, recipe_id))
+    db.execute("""UPDATE recipes SET title=?,description=?,cover_image=COALESCE(?,cover_image),cuisine=?,meal_type=?,category_id=?,difficulty=?,prep_time=?,cook_time=?,servings=?,status=?,updated_at=? WHERE id=?""", (str(data.get("title", row["title"])).strip(), str(data.get("description", row["description"])), data.get("cover_image"), str(data.get("cuisine", row["cuisine"])), str(data.get("meal_type", row["meal_type"])), data.get("category_id") or None, str(data.get("difficulty", row["difficulty"])), 0, 0, float(data.get("servings", row["servings"]) or 2), status, now, recipe_id))
     replace_relations(db, recipe_id, data); db.commit(); item = recipe_detail(db, recipe_id, uid); db.close(); return jsonify(data=item)
 
 

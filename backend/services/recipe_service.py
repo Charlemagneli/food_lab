@@ -7,7 +7,8 @@ def recipe_summary(row):
     item = dict(row)
     item["author"] = item.pop("author_name", "")
     item["category"] = item.pop("category_name", None)
-    item["total_time"] = int(item.get("prep_time", 0) or 0) + int(item.get("cook_time", 0) or 0)
+    # 烹饪时间不再由用户设置；保留字段仅为兼容旧数据，展示时间取准备时间。
+    item["total_time"] = int(item.get("prep_time", 0) or 0)
     item["tags"] = json_load(item.pop("tag_list", "[]"))
     return item
 

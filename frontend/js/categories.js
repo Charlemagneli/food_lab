@@ -1,1 +1,8 @@
-document.addEventListener('DOMContentLoaded',async()=>{const cats=await FoodLab.api('/api/categories');const grid=document.querySelector('#category-grid');const groups=[...new Set(cats.items.map(c=>c.group))];grid.innerHTML=groups.map(group=>`<section style="grid-column:1/-1"><div class="section-head" style="margin:20px 0 12px"><h2>${FoodLab.escape(group)}</h2></div><div class="category-grid">${cats.items.filter(c=>c.group===group).map(c=>`<a class="category-card" href="?category=${encodeURIComponent(c.slug)}">${FoodLab.escape(c.name)}</a>`).join('')}</div></section>`).join('');async function load(){const q=new URLSearchParams(location.search);const d=await FoodLab.api('/api/recipes?'+q);document.querySelector('#recipe-grid').innerHTML=d.items.length?d.items.map(FoodLab.renderCard).join(''):'<div class="empty">这个分类暂时还没有菜谱。</div>'}load()});
+document.addEventListener('DOMContentLoaded', async () => {
+  const cats = await FoodLab.api('/api/categories');
+  const grid = document.querySelector('#category-grid');
+  grid.innerHTML = cats.items.map(c => `<a class="category-card" href="?category=${encodeURIComponent(c.slug)}">${FoodLab.escape(c.name)}</a>`).join('');
+  const q = new URLSearchParams(location.search);
+  const data = await FoodLab.api('/api/recipes?' + q);
+  document.querySelector('#recipe-grid').innerHTML = data.items.length ? data.items.map(FoodLab.renderCard).join('') : '<div class="empty">这个分类暂时还没有菜谱。</div>';
+});
