@@ -1,11 +1,11 @@
 import json
-import os
 import re
 import uuid
 from flask import Blueprint, current_app, jsonify, request, session
-from werkzeug.utils import secure_filename
 from backend.database.db import connect, now_iso
+from backend.errors import APIError
 from backend.services.content_filter import find_blocked_content
+from backend.services.image_service import save_image
 from backend.services.recipe_service import recipe_detail, recipe_summary
 
 bp = Blueprint("recipes", __name__, url_prefix="/api")
@@ -22,45 +22,25 @@ def require_user():
     return session["user_id"], None
 
 
-def save_file(file):
-    if not file or not file.filename:
-        return None
-    ext = os.path.splitext(secure_filename(file.filename))[1].lower()
-    mime_ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "image/avif": ".avif"}
-    if ext not in {".jpg", ".jpeg", ".jfif", ".png", ".webp", ".gif", ".avif"}:
-        ext = mime_ext.get((file.mimetype or "").lower())
-    if not ext: return None
-    name = f"{uuid.uuid4().hex}{ext}"
-    folder = current_app.config["UPLOAD_FOLDER"]
-    os.makedirs(folder, exist_ok=True)
-    file.save(os.path.join(folder, name))
-    return f"/images/uploads/{name}"
-
-
 def normalize_tags(values):
     unique_tags = []
     for value in values if isinstance(values, list) else []:
-        tag = str(value).strip()[:20]
+        tag = str(value).strip()
         if tag and tag not in unique_tags:
             unique_tags.append(tag)
-    return unique_tags[:12]
+    return unique_tags
 
 
 def form_data():
     if request.mimetype and request.mimetype.startswith("multipart/"):
         data = request.form.to_dict()
-        data["ingredients"] = json.loads(data.get("ingredients", "[]"))
-        data["steps"] = json.loads(data.get("steps", "[]"))
-        for index, step in enumerate(data["steps"]):
-            image_url = save_file(request.files.get(f"step_image_{index}"))
-            if image_url:
-                step["image_url"] = image_url
         try:
+            data["ingredients"] = json.loads(data.get("ingredients", "[]"))
+            data["steps"] = json.loads(data.get("steps", "[]"))
             raw_tags = json.loads(data.get("tags", "[]"))
-        except (TypeError, ValueError):
-            raw_tags = []
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raise APIError("invalid_form_json", "食材、步骤或标签格式无效", 400)
         data["tags"] = normalize_tags(raw_tags)
-        data["cover_image"] = save_file(request.files.get("cover_image")) or data.get("cover_image")
         return data
     data = request.get_json(silent=True) or {}
     data.setdefault("ingredients", [])
@@ -68,6 +48,87 @@ def form_data():
     data.setdefault("tags", [])
     data["tags"] = normalize_tags(data["tags"])
     return data
+
+
+def attach_uploaded_images(data):
+    options = {
+        "folder": current_app.config["UPLOAD_FOLDER"],
+        "max_side": current_app.config.get("RECIPE_IMAGE_MAX_SIDE", 2400),
+        "max_pixels": current_app.config.get("IMAGE_MAX_PIXELS", 25_000_000),
+        "quality": current_app.config.get("IMAGE_WEBP_QUALITY", 84),
+    }
+    cover = request.files.get("cover_image")
+    if cover and cover.filename:
+        data["cover_image"] = save_image(cover, prefix="recipe-cover", **options)
+    for index, step in enumerate(data.get("steps", [])):
+        image = request.files.get(f"step_image_{index}")
+        if image and image.filename:
+            step["image_url"] = save_image(image, prefix="recipe-step", **options)
+
+
+def validate_recipe(data, status, existing_cover=None):
+    fields = {}
+    title = str(data.get("title", "")).strip()
+    description = str(data.get("description", "")).strip()
+    cuisine = str(data.get("cuisine", "")).strip()
+    ingredients = data.get("ingredients", [])
+    steps = data.get("steps", [])
+    tags = data.get("tags", [])
+    if not title or len(title) > 120:
+        fields["title"] = "菜谱名称不能为空且不能超过 120 个字符"
+    if len(description) > 1000:
+        fields["description"] = "简介不能超过 1000 个字符"
+    if cuisine not in CUISINES:
+        fields["cuisine"] = "请选择有效的菜系"
+    if not isinstance(ingredients, list) or len(ingredients) > 50:
+        fields["ingredients"] = "食材必须是列表且不能超过 50 项"
+        ingredients = []
+    if not isinstance(steps, list) or len(steps) > 50:
+        fields["steps"] = "步骤必须是列表且不能超过 50 项"
+        steps = []
+    if not isinstance(tags, list) or len(tags) > 12 or any(len(str(tag).strip()) > 20 for tag in tags):
+        fields["tags"] = "最多添加 12 个标签，每个标签不能超过 20 个字符"
+    valid_ingredients = []
+    for index, item in enumerate(ingredients):
+        if not isinstance(item, dict):
+            fields[f"ingredients.{index}"] = "食材格式无效"; continue
+        name, amount, unit = (str(item.get(key, "")).strip() for key in ("name", "amount", "unit"))
+        if len(name) > 40 or len(amount) > 30 or len(unit) > 20:
+            fields[f"ingredients.{index}"] = "食材名称、数量或单位过长"
+        if name and amount:
+            valid_ingredients.append(item)
+    valid_steps = []
+    for index, item in enumerate(steps):
+        if not isinstance(item, dict):
+            fields[f"steps.{index}"] = "步骤格式无效"; continue
+        instruction = str(item.get("instruction", item.get("text", ""))).strip()
+        if len(instruction) > 1000:
+            fields[f"steps.{index}"] = "单个步骤不能超过 1000 个字符"
+        if instruction:
+            valid_steps.append(item)
+    if status == "pending":
+        upload = request.files.get("cover_image")
+        if not existing_cover and not (upload and upload.filename):
+            fields["cover_image"] = "提交审核前必须上传封面图片"
+        if not valid_ingredients:
+            fields["ingredients"] = "提交审核前至少添加一项包含名称和数量的食材"
+        if not valid_steps:
+            fields["steps"] = "提交审核前至少添加一个制作步骤"
+    if fields:
+        raise APIError("recipe_validation_failed", "请检查菜谱表单", 400, fields)
+
+
+def stored_recipe_data(db, row):
+    return {
+        "title": row["title"], "description": row["description"], "cuisine": row["cuisine"],
+        "cover_image": row["cover_image"],
+        "ingredients": [dict(item) for item in db.execute("""SELECT i.name,ri.amount,ri.unit
+            FROM recipe_ingredients ri JOIN ingredients i ON i.id=ri.ingredient_id
+            WHERE ri.recipe_id=?""", (row["id"],)).fetchall()],
+        "steps": [dict(item) for item in db.execute("SELECT instruction,image_url FROM steps WHERE recipe_id=?", (row["id"],)).fetchall()],
+        "tags": [item["name"] for item in db.execute("""SELECT t.name FROM recipe_tags rt
+            JOIN tags t ON t.id=rt.tag_id WHERE rt.recipe_id=?""", (row["id"],)).fetchall()],
+    }
 
 
 def list_query(db, include_unpublished=False):
@@ -187,13 +248,13 @@ def create_recipe():
     uid, error = require_user()
     if error: return error
     data = form_data()
+    status = "draft" if data.get("status") == "draft" else "pending"
+    validate_recipe(data, status)
+    attach_uploaded_images(data)
     title = str(data.get("title", "")).strip()
-    if not title or len(title) > 120: return jsonify(error="菜谱名称不能为空且不能超过 120 个字符"), 400
     cuisine = str(data.get("cuisine", "")).strip()
-    if cuisine not in CUISINES: return jsonify(error="请选择有效的菜系"), 400
     db = connect(current_app.config["DATABASE_PATH"])
     category = db.execute("SELECT id FROM categories WHERE slug=?", (CUISINES[cuisine],)).fetchone()
-    status = "draft" if data.get("status") == "draft" else "pending"
     now = now_iso()
     cur = db.execute("""INSERT INTO recipes(title,description,cover_image,author_id,cuisine,category_id,prep_time,cook_time,servings,status,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (title, str(data.get("description", "")), data.get("cover_image"), uid, cuisine, category["id"] if category else None, 0, 0, 1, status, now, now))
@@ -214,10 +275,19 @@ def update_recipe(recipe_id):
         requested_status = raw_json["status"]
         if user["role"] != "admin":
             requested_status = "draft" if requested_status == "draft" else "pending"
+        if requested_status == "pending":
+            try:
+                validate_recipe(stored_recipe_data(db, row), "pending", existing_cover=row["cover_image"])
+            except APIError:
+                db.close(); raise
         db.execute("UPDATE recipes SET status=?,updated_at=? WHERE id=?", (requested_status, now_iso(), recipe_id)); db.commit(); item = recipe_detail(db, recipe_id, uid); db.close(); return jsonify(data=item)
     data = form_data(); now = now_iso(); status = "draft" if data.get("status") == "draft" else ("pending" if user["role"] != "admin" else data.get("status", row["status"]))
+    try:
+        validate_recipe(data, status, existing_cover=row["cover_image"])
+        attach_uploaded_images(data)
+    except APIError:
+        db.close(); raise
     cuisine = str(data.get("cuisine", row["cuisine"])).strip()
-    if cuisine not in CUISINES: db.close(); return jsonify(error="请选择有效的菜系"), 400
     category = db.execute("SELECT id FROM categories WHERE slug=?", (CUISINES[cuisine],)).fetchone()
     db.execute("""UPDATE recipes SET title=?,description=?,cover_image=COALESCE(?,cover_image),cuisine=?,category_id=?,prep_time=?,cook_time=?,servings=?,status=?,updated_at=? WHERE id=?""", (str(data.get("title", row["title"])).strip(), str(data.get("description", row["description"])), data.get("cover_image"), cuisine, category["id"] if category else None, 0, 0, 1, status, now, recipe_id))
     replace_relations(db, recipe_id, data); db.commit(); item = recipe_detail(db, recipe_id, uid); db.close(); return jsonify(data=item)

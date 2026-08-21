@@ -1,8 +1,10 @@
 import os
 import click
 from flask import Flask, jsonify, request, session
+from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash
+from backend.errors import APIError, error_payload
 from backend.config import Config
 from backend.database.db import init_db, connect
 from backend.routes.auth import bp as auth_bp
@@ -41,6 +43,22 @@ def create_app(config_class=Config):
     @app.errorhandler(413)
     def too_large(_):
         return jsonify(error="上传文件不能超过 8MB"), 413
+
+    @app.errorhandler(APIError)
+    def api_error(error):
+        return jsonify(error_payload(error.code, error.message, error.fields)), error.status
+
+    @app.errorhandler(Exception)
+    def unexpected_error(error):
+        if isinstance(error, HTTPException):
+            if request.path.startswith("/api/"):
+                code = "method_not_allowed" if error.code == 405 else "http_error"
+                return jsonify(error_payload(code, error.description)), error.code
+            return error
+        app.logger.exception("Unhandled application error")
+        if request.path.startswith("/api/"):
+            return jsonify(error_payload("internal_error", "服务器暂时无法完成请求")), 500
+        raise error
 
     @app.errorhandler(404)
     def not_found(error):

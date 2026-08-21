@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const tagKeyword = document.querySelector('#tag-keyword');
   const tagItems = document.querySelector('#tag-editor-items');
   let tags = [];
+  let hasExistingCover = false;
   const renderTags = () => {
     tagsInput.value = JSON.stringify(tags);
     tagItems.innerHTML = tags.map((tag, index) => `<button class="tag-editor-chip" type="button" data-tag-index="${index}"><span>${FoodLab.escape(tag)}</span><b aria-label="删除 ${FoodLab.escape(tag)}">×</b></button>`).join('');
@@ -69,6 +70,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       setCuisine(d.cuisine);
       tags = [...(d.tags || [])]; renderTags();
       showPreview(coverPreview, d.cover_image, '当前封面');
+      hasExistingCover = Boolean(d.cover_image);
       ingredientBox.innerHTML = ''; stepBox.innerHTML = ''; d.ingredients.forEach(addIngredient); d.steps.forEach(addStep);
       document.querySelector('.form-wrap h1').textContent = '编辑菜谱';
     } catch (error) { FoodLab.toast(error.message); }
@@ -80,6 +82,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const formData = new FormData(event.target); formData.set('status', event.submitter.value);
     formData.set('ingredients', JSON.stringify([...ingredientBox.children].map(row => ({name: row.querySelector('[data-name]').value, amount: row.querySelector('[data-amount]').value, unit: row.querySelector('[data-unit]').value}))));
     const stepRows = [...stepBox.children];
+    if (event.submitter.value === 'pending') {
+      const ingredients = [...ingredientBox.children].map(row => ({name: row.querySelector('[data-name]').value.trim(), amount: row.querySelector('[data-amount]').value.trim()})).filter(item => item.name && item.amount);
+      const steps = stepRows.map(row => row.querySelector('[data-instruction]').value.trim()).filter(Boolean);
+      if (!document.querySelector('[name=title]').value.trim()) { FoodLab.toast('请填写菜谱名称'); return; }
+      if (!hasExistingCover && !coverInput.files[0]) { FoodLab.toast('提交审核前必须上传封面图片'); return; }
+      if (!ingredients.length) { FoodLab.toast('提交审核前至少添加一项包含名称和数量的食材'); return; }
+      if (!steps.length) { FoodLab.toast('提交审核前至少添加一个制作步骤'); return; }
+    }
     formData.set('steps', JSON.stringify(stepRows.map(row => ({instruction: row.querySelector('[data-instruction]').value, image_url: row.dataset.imageUrl || ''}))));
     stepRows.forEach((row, index) => { const file = row.querySelector('[data-step-image]').files[0]; if (file) formData.append(`step_image_${index}`, file); });
     try {

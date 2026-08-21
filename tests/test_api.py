@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from io import BytesIO
 from pathlib import Path
+from PIL import Image
 
 from backend.app import create_app
 from backend.database.db import connect
@@ -31,8 +32,15 @@ class TestFoodLabAPI(unittest.TestCase):
     def csrf(self):
         return self.client.get("/api/auth/csrf").get_json()["csrf_token"]
 
+    @staticmethod
+    def image_bytes(fmt="PNG"):
+        output = BytesIO()
+        Image.new("RGB", (24, 24), (180, 96, 64)).save(output, fmt)
+        output.seek(0)
+        return output
+
     def register(self, username="alice"):
-        response = self.client.post("/api/auth/register", json={"username": username, "email": f"{username}@example.com", "password": "secret1"})
+        response = self.client.post("/api/auth/register", json={"username": username, "email": f"{username}@example.com", "password": "secret1", "confirm_password": "secret1"})
         self.assertEqual(response.status_code, 201)
         return response.get_json()
 
@@ -45,10 +53,19 @@ class TestFoodLabAPI(unittest.TestCase):
         self.assertEqual(detail.status_code, 200)
         self.assertTrue(detail.get_json()["data"]["ingredients"])
 
+    def test_registration_confirmation_and_error_shape(self):
+        mismatch = self.client.post("/api/auth/register", json={"username": "mismatch", "email": "mismatch@example.com", "password": "secret1", "confirm_password": "secret2"})
+        self.assertEqual(mismatch.status_code, 400)
+        self.assertEqual(mismatch.get_json()["code"], "password_confirmation_mismatch")
+        invalid = self.client.post("/api/auth/register", json={"username": "bad", "email": "not-an-email", "password": "secret1", "confirm_password": "secret1"})
+        self.assertEqual(invalid.status_code, 400)
+        self.assertIn("code", invalid.get_json())
+
     def test_auth_and_social_toggle(self):
         self.register()
         token = self.csrf()
         headers = {"X-CSRF-Token": token}
+        self.assertEqual(self.client.post("/api/recipes/1/like").status_code, 403)
         self.assertEqual(self.client.post("/api/recipes/1/like", headers=headers).status_code, 200)
         self.assertEqual(self.client.post("/api/recipes/1/favorite", headers=headers).status_code, 200)
         comment = self.client.post("/api/recipes/1/comments", json={"content": "很好吃！"}, headers=headers)
@@ -89,19 +106,19 @@ class TestFoodLabAPI(unittest.TestCase):
         token = self.csrf()
         invalid = self.client.post("/api/recipes", json={"title": "任意菜系", "cuisine": "自定义类型"}, headers={"X-CSRF-Token": token})
         self.assertEqual(invalid.status_code, 400)
-        response = self.client.post("/api/recipes", json={"title": "我的新菜", "description": "测试", "cuisine": "中餐", "meal_type": "该字段应被忽略", "ingredients": [{"name": "土豆", "amount": "2", "unit": "个"}], "steps": [{"instruction": "切块"}], "tags": ["家常菜"]}, headers={"X-CSRF-Token": token})
+        response = self.client.post("/api/recipes", json={"title": "我的新菜", "description": "测试", "cuisine": "中餐", "meal_type": "该字段应被忽略", "ingredients": [{"name": "土豆", "amount": "2", "unit": "个"}], "steps": [{"instruction": "切块"}], "tags": ["家常菜"], "status": "draft"}, headers={"X-CSRF-Token": token})
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.get_json()["data"]["status"], "pending")
+        self.assertEqual(response.get_json()["data"]["status"], "draft")
         self.assertNotIn("meal_type", response.get_json()["data"])
         bypass = self.client.put(f"/api/recipes/{response.get_json()['data']['id']}", json={"status": "published"}, headers={"X-CSRF-Token": token})
-        self.assertEqual(bypass.status_code, 200)
-        self.assertEqual(bypass.get_json()["data"]["status"], "pending")
+        self.assertEqual(bypass.status_code, 400)
+        self.assertEqual(bypass.get_json()["code"], "recipe_validation_failed")
         uploaded = self.client.post("/api/recipes", data={
             "title": "带步骤图片的菜谱", "description": "上传测试", "cuisine": "西餐", "servings": "99", "status": "draft",
             "ingredients": '[{"name":"面粉","amount":"100","unit":"克"}]',
             "steps": '[{"instruction":"混合食材"}]', "tags": '["烘焙","快手"]',
-            "cover_image": (BytesIO(b"cover-image"), "cover.png", "image/png"),
-            "step_image_0": (BytesIO(b"step-image"), "step.webp", "image/webp"),
+            "cover_image": (self.image_bytes("PNG"), "cover.png", "image/png"),
+            "step_image_0": (self.image_bytes("WEBP"), "step.webp", "image/webp"),
         }, headers={"X-CSRF-Token": token}, content_type="multipart/form-data")
         self.assertEqual(uploaded.status_code, 201)
         uploaded_data = uploaded.get_json()["data"]
@@ -120,7 +137,10 @@ class TestFoodLabAPI(unittest.TestCase):
         self.assertEqual(profile.get_json()["user"]["bio"], "喜欢研究家常菜")
         self.assertEqual(profile.get_json()["user"]["interests"], ["烘焙", "咖啡"])
         self.assertEqual(self.client.get("/api/users/me/recipes").status_code, 200)
-        avatar = self.client.post("/api/users/me/avatar", data={"avatar": (BytesIO(b"fake-image"), "avatar.png")}, headers=headers, content_type="multipart/form-data")
+        invalid_image = self.client.post("/api/users/me/avatar", data={"avatar": (BytesIO(b"not-an-image"), "fake.png", "image/png")}, headers=headers, content_type="multipart/form-data")
+        self.assertEqual(invalid_image.status_code, 400)
+        self.assertEqual(invalid_image.get_json()["code"], "image_invalid")
+        avatar = self.client.post("/api/users/me/avatar", data={"avatar": (self.image_bytes("PNG"), "avatar.png")}, headers=headers, content_type="multipart/form-data")
         self.assertEqual(avatar.status_code, 200)
         self.assertTrue(avatar.get_json()["avatar_url"].startswith("/images/uploads/avatar-"))
         avatar_url = avatar.get_json()["avatar_url"]
@@ -130,9 +150,9 @@ class TestFoodLabAPI(unittest.TestCase):
         preserved = self.client.patch("/api/users/me", json={"username": "new-name", "bio": "更新简介", "interests": ["烘焙"]}, headers=headers)
         self.assertEqual(preserved.status_code, 200)
         self.assertEqual(preserved.get_json()["user"]["avatar_url"], avatar_url)
-        mime_fallback = self.client.post("/api/users/me/avatar", data={"avatar": (BytesIO(b"fake-image"), "photo", "image/png")}, headers=headers, content_type="multipart/form-data")
+        mime_fallback = self.client.post("/api/users/me/avatar", data={"avatar": (self.image_bytes("PNG"), "photo", "image/png")}, headers=headers, content_type="multipart/form-data")
         self.assertEqual(mime_fallback.status_code, 200)
-        self.assertTrue(mime_fallback.get_json()["avatar_url"].endswith(".png"))
+        self.assertTrue(mime_fallback.get_json()["avatar_url"].endswith(".webp"))
         wrong = self.client.post("/api/auth/change-password", json={"current_password": "wrong", "new_password": "newsecret", "confirm_password": "newsecret"}, headers=headers)
         self.assertEqual(wrong.status_code, 400)
         changed = self.client.post("/api/auth/change-password", json={"current_password": "secret1", "new_password": "newsecret", "confirm_password": "newsecret"}, headers=headers)
@@ -242,8 +262,8 @@ class TestFoodLabAPI(unittest.TestCase):
         self.assertNotIn("direct", inbox)
         self.assertEqual(self.client.post("/api/messages/direct", json={"recipient": "FoodLab 管理员", "content": "你好"}, headers=headers).status_code, 405)
         recipe_payload = {"description": "审核通知测试", "cuisine": "中餐", "ingredients": [{"name": "测试食材", "amount": "1", "unit": "份"}], "steps": [{"instruction": "完成测试步骤"}]}
-        approved_id = self.client.post("/api/recipes", json={"title": "等待通过的菜谱", **recipe_payload}, headers=headers).get_json()["data"]["id"]
-        rejected_id = self.client.post("/api/recipes", json={"title": "等待修改的菜谱", **recipe_payload}, headers=headers).get_json()["data"]["id"]
+        approved_id = self.client.post("/api/recipes", json={"title": "等待通过的菜谱", "status": "draft", **recipe_payload}, headers=headers).get_json()["data"]["id"]
+        rejected_id = self.client.post("/api/recipes", json={"title": "等待修改的菜谱", "status": "draft", **recipe_payload}, headers=headers).get_json()["data"]["id"]
         marked = self.client.patch("/api/messages/read", headers=headers)
         self.assertEqual(marked.status_code, 200)
         self.assertEqual(self.client.get("/api/messages").get_json()["unread"], 0)

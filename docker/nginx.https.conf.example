@@ -1,0 +1,15 @@
+# HTTPS reference configuration. Terminate TLS at this Nginx or an external
+# reverse proxy, then proxy the same application locations as nginx.conf.
+server {
+    listen 443 ssl http2;
+    server_name foodlab.example.com;
+    ssl_certificate /etc/letsencrypt/live/foodlab.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/foodlab.example.com/privkey.pem;
+    include /etc/nginx/conf.d/foodlab-locations.conf;
+}
+
+server {
+    listen 80;
+    server_name foodlab.example.com;
+    return 301 https://$host$request_uri;
+}

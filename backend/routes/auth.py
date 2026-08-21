@@ -22,12 +22,14 @@ def csrf():
 def register():
     data = request.get_json(silent=True) or {}
     username, email, password = str(data.get("username", "")).strip(), str(data.get("email", "")).strip().lower(), str(data.get("password", ""))
+    if password != str(data.get("confirm_password", "")):
+        return jsonify(code="password_confirmation_mismatch", error="两次输入的密码不一致"), 400
     if len(username) < 2 or len(username) > 30:
-        return jsonify(error="用户名长度需为 2-30 个字符"), 400
+        return jsonify(code="username_invalid", error="用户名长度需为 2-30 个字符"), 400
     if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
-        return jsonify(error="请输入有效邮箱"), 400
+        return jsonify(code="email_invalid", error="请输入有效邮箱"), 400
     if len(password) < 6:
-        return jsonify(error="密码至少需要 6 个字符"), 400
+        return jsonify(code="password_too_short", error="密码至少需要 6 个字符"), 400
     db = connect(current_app.config["DATABASE_PATH"])
     try:
         db.execute("INSERT INTO users(username,email,password_hash,created_at) VALUES (?,?,?,?)", (username, email, generate_password_hash(password), now_iso()))
@@ -40,7 +42,7 @@ def register():
         return jsonify(user_json(row)), 201
     except Exception as exc:
         if "UNIQUE" in str(exc):
-            return jsonify(error="用户名或邮箱已存在"), 409
+            return jsonify(code="account_exists", error="用户名或邮箱已存在"), 409
         raise
     finally:
         db.close()

@@ -161,6 +161,7 @@ python -m unittest discover -v
 - 系统消息、审核通过/驳回通知与防重复发送
 - 评论屏蔽词、规避字符识别和处置记录
 - 上传图片公开路径回归测试
+- 注册密码确认、统一 API 错误码和真实图片解码压缩校验
 
 ## Docker 启动
 
@@ -232,6 +233,10 @@ SQLite 数据和上传目录使用 Docker 命名卷。普通的 `docker compose 
 | `UPLOAD_FOLDER` | `frontend/images/uploads` | 图片上传目录 |
 | `CONTENT_FILTER_WORDS_FILE` | `backend/data/blocked_words.txt` | 评论区屏蔽词库路径，格式为 `类别|短语` |
 | `CONTENT_FILTER_EXTRA_WORDS` | 空 | 以英文逗号分隔的额外评论屏蔽短语 |
+| `IMAGE_MAX_PIXELS` | `25000000` | 上传图片最大像素数 |
+| `RECIPE_IMAGE_MAX_SIDE` | `2400` | 菜谱图片最长边，保存为 WebP |
+| `AVATAR_IMAGE_MAX_SIDE` | `1024` | 头像图片最长边，保存为 WebP |
+| `IMAGE_WEBP_QUALITY` | `84` | WebP 压缩质量 |
 | `SESSION_COOKIE_SECURE` | `0` | HTTPS 环境设为 `1` |
 | `FLASK_DEBUG` | `0` | 本地调试开关 |
 | `HTTP_BIND` | `127.0.0.1` | Nginx 暴露地址；默认仅允许本机访问 |
@@ -308,6 +313,8 @@ SQLite 数据和上传目录使用 Docker 命名卷。普通的 `docker compose 
 - HTTPS 启用后设置 `SESSION_COOKIE_SECURE=1`
 - 限制数据库、上传目录和 `.env` 的文件权限
 - 配置数据库与上传文件备份
+- 可执行 `docker compose exec api python -m backend.backup` 生成 SQLite 和上传目录快照；再将 `foodlab-backups` 卷同步到异地存储
+- HTTPS 配置参考 `docker/nginx.https.conf.example`，不要把证书私钥提交到 Git
 - 首次生产启动后执行 `docker compose exec api flask --app backend.app create-admin`
 - 确认 `APP_ENV=production`、`SEED_DEMO_DATA=0`、`SESSION_COOKIE_SECURE=1` 已生效
 - 检查 8 MB 上传限制是否符合生产需求
