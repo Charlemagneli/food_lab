@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>后台 · 食研所</title>
   <link rel="stylesheet" href="/css/style.css">
-  <link rel="stylesheet" href="/css/admin.css">
+  <link rel="stylesheet" href="/css/admin.css?v=20260821-home-featured">
 </head>
 <body>
   <div id="site-header"></div>
@@ -19,6 +19,11 @@
       <span class="admin-console-mark" aria-hidden="true">✦</span>
     </header>
     <section id="admin-stats" class="admin-stat admin-stat-featured" aria-label="后台概览"></section>
+    <section class="panel admin-section homepage-featured-panel">
+      <div><h2>首页主视觉图片</h2><p class="muted">从已发布的编辑精选菜谱中选择首页封面。</p></div>
+      <div id="homepage-featured-preview" class="homepage-featured-compact"><span>尚未设置主视觉图片</span></div>
+      <a class="btn" href="/admin-homepage.html">选择图片</a>
+    </section>
     <section class="panel admin-section">
       <div class="admin-section-head">
         <div>
@@ -28,16 +33,28 @@
         <div class="admin-filter" role="tablist" aria-label="菜谱筛选">
           <button class="active" data-status="pending" role="tab">待审核</button>
           <button data-status="published" role="tab">已发布</button>
+          <button data-status="hidden" role="tab">已隐藏</button>
+          <button data-status="rejected" role="tab">已驳回</button>
           <button data-status="all" role="tab">全部</button>
         </div>
       </div>
       <p class="muted admin-section-note">通过审核的菜谱才会出现在公开列表；编辑精选标记可随时添加或取消。</p>
       <div id="admin-recipes" class="admin-review-list"></div>
     </section>
+    <div class="admin-management-grid">
+      <section class="panel admin-section admin-management-card">
+        <div class="admin-section-head"><div><span class="eyebrow">Community</span><h2>用户管理</h2></div></div>
+        <div id="admin-users" class="admin-simple-list"></div>
+      </section>
+      <section class="panel admin-section admin-management-card">
+        <div class="admin-section-head"><div><span class="eyebrow">Discussion</span><h2>评论管理</h2></div></div>
+        <div id="admin-comments" class="admin-simple-list"></div>
+      </section>
+    </div>
   </main>
   <div id="site-footer"></div>
   <div id="toast" class="toast"></div>
-  <script src="/js/main.js?v=20260821-no-difficulty"></script>
-  <script src="/js/admin.js?v=20260821-featured-api"></script>
+  <script src="/js/main.js?v=20260821-system-messages"></script>
+  <script src="/js/admin.js?v=20260821-home-featured"></script>
 </body>
 </html>

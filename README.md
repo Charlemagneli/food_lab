@@ -12,9 +12,11 @@
 - 按标题、简介、食材、菜系、标签和作者搜索
 - 按最新、浏览量、点赞数和收藏数排序
 - 中餐、西餐、日料、韩餐、东南亚、甜品和汤分类
-- 菜谱详情、食材份量调整、分步烹饪和复制链接
+- 菜谱默认按一人份展示，读者可自行调整食材份量；支持分步烹饪和复制链接
 - 响应式布局、移动端导航和明暗主题
 - “编辑精选”菜谱徽标
+- 首页主视觉可由管理员从已发布的编辑精选菜谱中选择封面，并链接到对应详情页
+- 独立的首页主视觉选择界面展示候选菜谱封面、浏览量、点赞量和评论量
 
 ### 用户与互动
 
@@ -22,13 +24,16 @@
 - 个人主页、个人简介和兴趣标签
 - 账户资料与密码修改
 - 菜谱点赞、收藏、评论和评论点赞
+- 顶部系统消息入口、未读提醒和平台通知列表
+- 菜谱审核通过或驳回后自动向作者发送系统消息，驳回消息包含处理原因
 - 我的收藏与我的菜谱
 
 ### 菜谱创作
 
 - 发布、编辑和删除菜谱
+- 发布入口要求登录；未登录访客会先进入注册或登录流程
 - 动态添加食材与制作步骤
-- 封面图片上传
+- 封面和步骤图片上传、即时预览
 - 保存草稿和提交审核
 - 菜谱状态：`draft`、`pending`、`published`、`rejected`
 
@@ -37,10 +42,11 @@
 - 后台访问权限保护
 - 待审核、已发布和全部菜谱列表
 - 通过、驳回和重新审核
+- 隐藏违规菜谱、记录处理人/时间/原因并永久删除内容
 - 设置或取消“编辑精选”
 - 后台数据概览
 
-管理员用户管理、评论管理和分类管理已经具备后端接口，但完整的后台可视化页面仍待后续完善。
+管理员用户和评论管理已提供后台能力；分类属于系统基础数据，当前不提供管理员新增/删除接口，避免误操作破坏分类数据。
 
 ## 技术栈
 
@@ -69,10 +75,12 @@ food_lab/
 │   ├── routes/
 │   │   ├── auth.py             # 注册、登录、会话和密码
 │   │   ├── recipes.py          # 菜谱、分类和社区互动 API
+│   │   ├── messages.py         # 系统消息 API
 │   │   ├── users.py            # 个人资料、收藏和个人菜谱 API
 │   │   └── admin.py            # 管理员 API
 │   └── services/
-│       └── recipe_service.py   # 菜谱数据组装
+│       ├── recipe_service.py   # 菜谱数据组装
+│       └── content_filter.py   # 评论内容屏蔽检测
 ├── frontend/
 │   ├── css/                    # 全局、后台和烹饪模式样式
 │   ├── js/                     # 各页面 JavaScript
@@ -148,8 +156,11 @@ python -m unittest discover -v
 - 菜谱创建及审核状态
 - 搜索和公开菜谱查询
 - 个人资料和密码修改
-- 管理员权限与分类管理
+- 管理员权限与基础数据保护
 - 默认测试账号登录
+- 系统消息、审核通过/驳回通知与防重复发送
+- 评论屏蔽词、规避字符识别和处置记录
+- 上传图片公开路径回归测试
 
 ## Docker 启动
 
@@ -159,7 +170,9 @@ python -m unittest discover -v
 cp .env.example .env
 ```
 
-至少修改 `.env` 中的 `SECRET_KEY`。可以使用以下命令生成随机值：
+开发机可以继续使用默认配置进行体验；准备上线时请把 `.env` 改为生产值：`APP_ENV=production`、`SEED_DEMO_DATA=0`、`SESSION_COOKIE_SECURE=1`，并设置至少 32 个字符的随机 `SECRET_KEY`。不要复用仓库中的开发账号密码。
+
+可以使用以下命令生成随机密钥：
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(48))"
@@ -173,7 +186,19 @@ DATABASE_PATH=/app/instance/foodlab.sqlite3
 UPLOAD_FOLDER=/app/frontend/images/uploads
 SESSION_COOKIE_SECURE=0
 FLASK_DEBUG=0
+APP_ENV=production
+SEED_DEMO_DATA=0
+HTTP_BIND=127.0.0.1
+HTTP_PORT=8080
 ```
+
+生产模式不会自动创建管理员。容器启动后，在项目目录执行下面的交互式命令，密码只在终端输入，不会出现在命令参数或 Git 中：
+
+```bash
+docker compose exec api flask --app backend.app create-admin
+```
+
+如果使用外部 HTTPS 反向代理，保持 Compose 的 `HTTP_BIND=127.0.0.1`，由外部 Nginx/Caddy 终止 TLS 后转发到 `127.0.0.1:8080`。只有在明确需要局域网或公网直接访问本机 Nginx 时，才调整 `HTTP_BIND`。
 
 ### 2. 构建并启动
 
@@ -182,7 +207,7 @@ docker compose up --build -d
 docker compose ps
 ```
 
-访问 <http://127.0.0.1/>。Nginx 提供前端静态文件，并将 `/api/` 和 `/uploads/` 请求代理到 Flask。
+默认访问 <http://127.0.0.1:8080/>。Nginx 提供前端静态文件，并将 `/api/`、`/images/uploads/` 和兼容旧路径 `/uploads/` 请求代理到 Flask。默认仅监听本机，准备接入公网反向代理时再将 `HTTP_BIND` 改为服务器需要的监听地址。
 
 查看日志：
 
@@ -205,10 +230,16 @@ SQLite 数据和上传目录使用 Docker 命名卷。普通的 `docker compose 
 | `SECRET_KEY` | 开发占位值 | Flask 会话和 CSRF 签名密钥 |
 | `DATABASE_PATH` | `instance/foodlab.sqlite3` | SQLite 数据库路径 |
 | `UPLOAD_FOLDER` | `frontend/images/uploads` | 图片上传目录 |
+| `CONTENT_FILTER_WORDS_FILE` | `backend/data/blocked_words.txt` | 评论区屏蔽词库路径，格式为 `类别|短语` |
+| `CONTENT_FILTER_EXTRA_WORDS` | 空 | 以英文逗号分隔的额外评论屏蔽短语 |
 | `SESSION_COOKIE_SECURE` | `0` | HTTPS 环境设为 `1` |
 | `FLASK_DEBUG` | `0` | 本地调试开关 |
+| `HTTP_BIND` | `127.0.0.1` | Nginx 暴露地址；默认仅允许本机访问 |
+| `HTTP_PORT` | `8080` | Nginx 暴露端口 |
 
 `.env` 已被 Git 忽略，请勿提交真实密码、密钥或生产环境配置。
+
+上传文件由 Flask 从 `UPLOAD_FOLDER` 提供，Nginx 会将 `/images/uploads/` 转发到 Flask；Docker 中该目录使用独立命名卷，因此容器重启不会丢失头像和菜谱图片。
 
 ## API 概览
 
@@ -224,14 +255,34 @@ SQLite 数据和上传目录使用 Docker 命名卷。普通的 `docker compose 
 | `POST /api/recipes/:id/like` | 点赞或取消点赞 |
 | `POST /api/recipes/:id/favorite` | 收藏或取消收藏 |
 | `POST /api/recipes/:id/comments` | 发布评论 |
+| `POST /api/comments/:id/like` | 点赞或取消点赞评论 |
+| `DELETE /api/comments/:id` | 删除自己的评论（管理员可管理全部评论） |
 | `GET /api/auth/me` | 当前登录用户 |
 | `PATCH /api/users/me` | 更新账户资料 |
+| `POST /api/users/me/avatar` | 上传或更换头像（multipart 字段 `avatar`） |
+| `POST /api/users/:id/follow` | 关注或取消关注用户 |
 | `POST /api/auth/change-password` | 修改密码 |
+| `GET /api/messages` | 当前用户的系统消息列表 |
+| `GET /api/messages/unread-count` | 系统消息未读数 |
+| `PATCH /api/messages/read` | 将系统消息标记为已读 |
 | `GET /api/admin/recipes` | 管理员菜谱列表 |
+| `GET /api/admin/homepage-featured` | 获取首页主视觉候选菜谱 |
+| `PATCH /api/admin/homepage-featured` | 设置首页主视觉菜谱（仅限已发布且有封面的编辑精选） |
 | `PATCH /api/admin/recipes/:id` | 审核或设置编辑精选 |
 | `PATCH /api/admin/recipes/:id/featured` | 独立设置或取消编辑精选 |
+| `DELETE /api/admin/recipes/:id` | 管理员永久删除菜谱 |
+
+分类仅提供公开读取接口 `GET /api/categories`，不提供管理员新增或删除接口。
 
 除登录和注册外，写请求使用 Cookie 会话与 CSRF 保护。浏览器端会先请求 `/api/auth/csrf`，再通过 `X-CSRF-Token` 请求头提交令牌。
+
+### 评论内容治理
+
+评论在服务端发布前经过基础屏蔽词检测，能够识别在短语中插入空格、常见标点或全角字符的规避方式。命中规则时接口返回 `422` 和 `content_blocked`，该评论不会写入评论表。
+
+基础词库位于 `backend/data/blocked_words.txt`，每行使用 `类别|短语`，修改文件后会自动重新加载。建议使用具有明确违法招揽或交易含义的组合短语，避免用过于宽泛的单字词误伤正常讨论。系统仅记录评论用户、菜谱、规则类别、规则哈希和时间，不记录被拦截的评论正文。
+
+关键词拦截只是基础技术措施，不能替代人工审核、用户举报、申诉处置、隐私政策、数据留存规则和正式法律合规审查。正式上线前应根据实际运营地区、用户规模和业务形态完善这些制度。
 
 ## 内容工作流
 
@@ -243,6 +294,8 @@ SQLite 数据和上传目录使用 Docker 命名卷。普通的 `docker compose 
  pending
    ├── 管理员通过  → published → 可在公开页面展示
    └── 管理员驳回  → rejected  → 可重新修改和提交
+
+已发布内容如需下架，管理员可将其设为 `hidden`，系统会记录处理人、时间和原因，并立即从公开列表移除。
 ```
 
 “编辑精选”是独立于审核状态的管理员标记。被标记的公开菜谱会在菜谱卡片、详情页和个人菜谱中显示精选徽标。
@@ -255,6 +308,8 @@ SQLite 数据和上传目录使用 Docker 命名卷。普通的 `docker compose 
 - HTTPS 启用后设置 `SESSION_COOKIE_SECURE=1`
 - 限制数据库、上传目录和 `.env` 的文件权限
 - 配置数据库与上传文件备份
+- 首次生产启动后执行 `docker compose exec api flask --app backend.app create-admin`
+- 确认 `APP_ENV=production`、`SEED_DEMO_DATA=0`、`SESSION_COOKIE_SECURE=1` 已生效
 - 检查 8 MB 上传限制是否符合生产需求
 - 不要把 `.env`、SQLite 数据库或用户上传文件提交到 Git
 
@@ -285,8 +340,8 @@ test: cover administrator permissions
 - 阶段 2：用户与个人空间——已完成基础版本
 - 阶段 3：社区互动——已完成基础版本
 - 阶段 4：菜谱创作工作流——已完成基础版本
-- 阶段 5：管理员后台——菜谱审核与编辑精选已完成，其余管理界面待完善
-- 阶段 6：测试与部署——已有自动化测试和 Docker 基础配置，生产部署验收待完成
+- 阶段 5：管理员后台——菜谱审核、编辑精选、用户管理和评论管理已完成基础版本
+- 阶段 6：测试与部署——API 自动化测试、健康检查、Docker/Nginx 配置及上传卷访问路径已完成；仍需在安装 Docker Compose 的目标 Linux 环境完成容器启动、重启持久化和 HTTPS 验收
 
 ## License
 

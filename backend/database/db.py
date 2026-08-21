@@ -28,12 +28,14 @@ CREATE TABLE IF NOT EXISTS recipes (
  id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
  cover_image TEXT, author_id INTEGER NOT NULL, cuisine TEXT NOT NULL DEFAULT '', meal_type TEXT NOT NULL DEFAULT '',
  category_id INTEGER, difficulty TEXT NOT NULL DEFAULT '简单', prep_time INTEGER NOT NULL DEFAULT 0,
- cook_time INTEGER NOT NULL DEFAULT 0, servings REAL NOT NULL DEFAULT 2, status TEXT NOT NULL DEFAULT 'pending',
+ cook_time INTEGER NOT NULL DEFAULT 0, servings REAL NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'pending',
  is_featured INTEGER NOT NULL DEFAULT 0,
+ reviewed_at TEXT, reviewed_by INTEGER, rejection_reason TEXT NOT NULL DEFAULT '',
  views_count INTEGER NOT NULL DEFAULT 0, likes_count INTEGER NOT NULL DEFAULT 0,
  favorites_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
  FOREIGN KEY(author_id) REFERENCES users(id) ON DELETE CASCADE,
- FOREIGN KEY(category_id) REFERENCES categories(id) ON DELETE SET NULL
+ FOREIGN KEY(category_id) REFERENCES categories(id) ON DELETE SET NULL,
+ FOREIGN KEY(reviewed_by) REFERENCES users(id) ON DELETE SET NULL
 );
 CREATE TABLE IF NOT EXISTS ingredients (
  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE
@@ -76,6 +78,24 @@ CREATE TABLE IF NOT EXISTS comment_likes (
  PRIMARY KEY(user_id, comment_id), FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
  FOREIGN KEY(comment_id) REFERENCES comments(id) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS messages (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, sender_id INTEGER, recipient_id INTEGER NOT NULL,
+ message_type TEXT NOT NULL DEFAULT 'direct', content TEXT NOT NULL,
+ is_read INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
+ CHECK(message_type IN ('direct', 'platform')),
+ FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE SET NULL,
+ FOREIGN KEY(recipient_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS comment_moderation_events (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, recipe_id INTEGER,
+ reason_code TEXT NOT NULL, rule_hash TEXT NOT NULL, created_at TEXT NOT NULL,
+ FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL,
+ FOREIGN KEY(recipe_id) REFERENCES recipes(id) ON DELETE SET NULL
+);
+CREATE TABLE IF NOT EXISTS site_settings (
+ key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL,
+ updated_by INTEGER, FOREIGN KEY(updated_by) REFERENCES users(id) ON DELETE SET NULL
+);
 """
 
 
@@ -93,7 +113,7 @@ def connect(path):
     return db
 
 
-def init_db(path):
+def init_db(path, seed_demo=True):
     db = connect(path)
     db.executescript(SCHEMA)
     columns = {row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()}
@@ -102,12 +122,18 @@ def init_db(path):
     recipe_columns = {row["name"] for row in db.execute("PRAGMA table_info(recipes)").fetchall()}
     if "is_featured" not in recipe_columns:
         db.execute("ALTER TABLE recipes ADD COLUMN is_featured INTEGER NOT NULL DEFAULT 0")
-    seed(db)
+    if "reviewed_at" not in recipe_columns:
+        db.execute("ALTER TABLE recipes ADD COLUMN reviewed_at TEXT")
+    if "reviewed_by" not in recipe_columns:
+        db.execute("ALTER TABLE recipes ADD COLUMN reviewed_by INTEGER")
+    if "rejection_reason" not in recipe_columns:
+        db.execute("ALTER TABLE recipes ADD COLUMN rejection_reason TEXT NOT NULL DEFAULT ''")
+    seed(db, demo=seed_demo)
     db.commit()
     db.close()
 
 
-def seed(db):
+def seed(db, demo=True):
     categories = [
         ("中餐", "chinese"), ("西餐", "western"), ("日料", "japanese"),
         ("韩餐", "korean"), ("东南亚", "southeast-asian"), ("甜品", "dessert"),
@@ -115,6 +141,8 @@ def seed(db):
         ("主食", "staple"), ("小吃", "snack")
     ]
     db.executemany("INSERT OR IGNORE INTO categories(name, slug) VALUES (?, ?)", categories)
+    if not demo:
+        return
     from werkzeug.security import generate_password_hash
     admin_hash = generate_password_hash("FoodLab-admin-123")
     db.execute("INSERT OR IGNORE INTO users(username,email,password_hash,bio,role,created_at) VALUES (?,?,?,?,?,?)",
@@ -122,6 +150,9 @@ def seed(db):
     test_user_hash = generate_password_hash("FoodLab-user-123")
     db.execute("INSERT OR IGNORE INTO users(username,email,password_hash,bio,role,created_at) VALUES (?,?,?,?,?,?)",
                ("FoodLab 测试用户", "user@foodlab.local", test_user_hash, "用于体验食研所普通用户功能", "user", now_iso()))
+    for recipient in db.execute("SELECT id FROM users WHERE email IN (?,?)", ("admin@foodlab.local", "user@foodlab.local")).fetchall():
+        if not db.execute("SELECT 1 FROM messages WHERE recipient_id=? AND message_type='platform' LIMIT 1", (recipient["id"],)).fetchone():
+            db.execute("INSERT INTO messages(sender_id,recipient_id,message_type,content,created_at) VALUES (NULL,?,'platform',?,?)", (recipient["id"], "欢迎来到食研所！这里会收到平台通知和社区消息。", now_iso()))
     existing_admin = db.execute("SELECT password_hash FROM users WHERE email=?", ("admin@foodlab.local",)).fetchone()
     if existing_admin and "$foodlab$" in existing_admin["password_hash"]:
         db.execute("UPDATE users SET password_hash=? WHERE email=?", (admin_hash, "admin@foodlab.local"))

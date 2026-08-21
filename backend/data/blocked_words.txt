@@ -1,0 +1,21 @@
+# FoodLab 评论区基础规则：类别|短语
+# 仅使用具有明确违法招揽/交易语义的组合词，避免屏蔽正常讨论。
+# 修改后无需重启；服务会按文件修改时间重新加载。
+fraud|刷单返利
+fraud|出租银行卡
+fraud|出售银行卡
+fraud|代办假证
+fraud|裸聊敲诈
+gambling|博彩下注
+gambling|网络赌博代理
+drugs|出售毒品
+drugs|购买毒品
+weapons|买卖枪支
+weapons|出售枪支弹药
+violence|雇凶杀人
+terrorism|招募恐怖活动
+terrorism|传授制爆方法
+privacy_abuse|出售公民信息
+privacy_abuse|开盒个人信息
+sexual_exploitation|未成年人裸照
+sexual_exploitation|儿童色情资源

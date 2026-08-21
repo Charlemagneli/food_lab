@@ -33,6 +33,8 @@ def register():
         db.execute("INSERT INTO users(username,email,password_hash,created_at) VALUES (?,?,?,?)", (username, email, generate_password_hash(password), now_iso()))
         db.commit()
         row = db.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+        db.execute("INSERT INTO messages(sender_id,recipient_id,message_type,content,created_at) VALUES (NULL,?,'platform',?,?)", (row["id"], "欢迎来到食研所！完成个人资料后，就可以分享你的第一道菜谱。", now_iso()))
+        db.commit()
         session["user_id"] = row["id"]
         session.setdefault("csrf_token", secrets.token_urlsafe(24))
         return jsonify(user_json(row)), 201

@@ -5,9 +5,15 @@ import uuid
 from flask import Blueprint, current_app, jsonify, request, session
 from werkzeug.utils import secure_filename
 from backend.database.db import connect, now_iso
+from backend.services.content_filter import find_blocked_content
 from backend.services.recipe_service import recipe_detail, recipe_summary
 
 bp = Blueprint("recipes", __name__, url_prefix="/api")
+
+CUISINES = {
+    "中餐": "chinese", "西餐": "western", "日料": "japanese",
+    "韩餐": "korean", "东南亚": "southeast-asian", "甜品": "dessert", "汤": "soup",
+}
 
 
 def require_user():
@@ -20,8 +26,10 @@ def save_file(file):
     if not file or not file.filename:
         return None
     ext = os.path.splitext(secure_filename(file.filename))[1].lower()
-    if ext not in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
-        return None
+    mime_ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "image/avif": ".avif"}
+    if ext not in {".jpg", ".jpeg", ".jfif", ".png", ".webp", ".gif", ".avif"}:
+        ext = mime_ext.get((file.mimetype or "").lower())
+    if not ext: return None
     name = f"{uuid.uuid4().hex}{ext}"
     folder = current_app.config["UPLOAD_FOLDER"]
     os.makedirs(folder, exist_ok=True)
@@ -29,18 +37,36 @@ def save_file(file):
     return f"/images/uploads/{name}"
 
 
+def normalize_tags(values):
+    unique_tags = []
+    for value in values if isinstance(values, list) else []:
+        tag = str(value).strip()[:20]
+        if tag and tag not in unique_tags:
+            unique_tags.append(tag)
+    return unique_tags[:12]
+
+
 def form_data():
     if request.mimetype and request.mimetype.startswith("multipart/"):
         data = request.form.to_dict()
         data["ingredients"] = json.loads(data.get("ingredients", "[]"))
         data["steps"] = json.loads(data.get("steps", "[]"))
-        data["tags"] = [x.strip() for x in data.get("tags", "").split(",") if x.strip()]
+        for index, step in enumerate(data["steps"]):
+            image_url = save_file(request.files.get(f"step_image_{index}"))
+            if image_url:
+                step["image_url"] = image_url
+        try:
+            raw_tags = json.loads(data.get("tags", "[]"))
+        except (TypeError, ValueError):
+            raw_tags = []
+        data["tags"] = normalize_tags(raw_tags)
         data["cover_image"] = save_file(request.files.get("cover_image")) or data.get("cover_image")
         return data
     data = request.get_json(silent=True) or {}
     data.setdefault("ingredients", [])
     data.setdefault("steps", [])
     data.setdefault("tags", [])
+    data["tags"] = normalize_tags(data["tags"])
     return data
 
 
@@ -50,9 +76,9 @@ def list_query(db, include_unpublished=False):
     if not include_unpublished:
         where.append("r.status='published'")
     if q:
-        where.append("(r.title LIKE ? OR r.description LIKE ? OR r.cuisine LIKE ? OR r.meal_type LIKE ? OR u.username LIKE ? OR EXISTS (SELECT 1 FROM recipe_ingredients ri JOIN ingredients i ON i.id=ri.ingredient_id WHERE ri.recipe_id=r.id AND i.name LIKE ?) OR EXISTS (SELECT 1 FROM recipe_tags rt JOIN tags t ON t.id=rt.tag_id WHERE rt.recipe_id=r.id AND t.name LIKE ?))")
-        params += [f"%{q}%"] * 7
-    for field, col in (("cuisine", "r.cuisine"), ("meal_type", "r.meal_type")):
+        where.append("(r.title LIKE ? OR r.description LIKE ? OR r.cuisine LIKE ? OR u.username LIKE ? OR EXISTS (SELECT 1 FROM recipe_ingredients ri JOIN ingredients i ON i.id=ri.ingredient_id WHERE ri.recipe_id=r.id AND i.name LIKE ?) OR EXISTS (SELECT 1 FROM recipe_tags rt JOIN tags t ON t.id=rt.tag_id WHERE rt.recipe_id=r.id AND t.name LIKE ?))")
+        params += [f"%{q}%"] * 6
+    for field, col in (("cuisine", "r.cuisine"),):
         if request.args.get(field):
             where.append(f"{col}=?"); params.append(request.args[field])
     if request.args.get("category"):
@@ -64,7 +90,7 @@ def list_query(db, include_unpublished=False):
     except ValueError:
         page, per_page = 1, 12
     total = db.execute(f"SELECT count(*) FROM recipes r JOIN users u ON u.id=r.author_id LEFT JOIN categories c ON c.id=r.category_id WHERE {' AND '.join(where)}", params).fetchone()[0]
-    rows = db.execute(f"""SELECT r.*,u.username AS author_name,c.name AS category_name,
+    rows = db.execute(f"""SELECT r.*,u.username AS author_name,u.avatar_url AS author_avatar,c.name AS category_name,
       COALESCE((SELECT json_group_array(t.name) FROM recipe_tags rt JOIN tags t ON t.id=rt.tag_id WHERE rt.recipe_id=r.id),'[]') tag_list
       FROM recipes r JOIN users u ON u.id=r.author_id LEFT JOIN categories c ON c.id=r.category_id
       WHERE {' AND '.join(where)} ORDER BY {order} LIMIT ? OFFSET ?""", params + [per_page, (page-1)*per_page]).fetchall()
@@ -74,6 +100,28 @@ def list_query(db, include_unpublished=False):
 @bp.get("/health")
 def health():
     return jsonify(status="ok", service="foodlab-api")
+
+
+@bp.get("/homepage-featured")
+def homepage_featured():
+    db = connect(current_app.config["DATABASE_PATH"])
+    setting = db.execute("SELECT value FROM site_settings WHERE key='homepage_featured_recipe_id'").fetchone()
+    preferred_id = int(setting["value"]) if setting and setting["value"].isdigit() else -1
+    row = db.execute("""SELECT r.id,r.title,r.description,r.cover_image,r.cuisine,
+        u.username AS author_name,u.avatar_url AS author_avatar,NULL AS category_name,'[]' AS tag_list
+        FROM recipes r JOIN users u ON u.id=r.author_id
+        WHERE r.id=? AND r.status='published' AND r.is_featured=1
+          AND r.cover_image IS NOT NULL AND trim(r.cover_image)<>''""", (preferred_id,)).fetchone()
+    if not row:
+        row = db.execute("""SELECT r.id,r.title,r.description,r.cover_image,r.cuisine,
+            u.username AS author_name,u.avatar_url AS author_avatar,NULL AS category_name,'[]' AS tag_list
+            FROM recipes r JOIN users u ON u.id=r.author_id
+            WHERE r.status='published' AND r.is_featured=1
+              AND r.cover_image IS NOT NULL AND trim(r.cover_image)<>''
+            ORDER BY r.updated_at DESC LIMIT 1""").fetchone()
+    result = recipe_summary(row) if row else None
+    db.close()
+    return jsonify(data=result)
 
 
 @bp.get("/categories")
@@ -103,7 +151,8 @@ def get_recipe(recipe_id):
     if not row:
         db.close(); return jsonify(error="菜谱不存在"), 404
     uid = session.get("user_id")
-    if row["status"] != "published" and uid != row["author_id"]:
+    viewer = db.execute("SELECT role FROM users WHERE id=?", (uid,)).fetchone() if uid else None
+    if row["status"] != "published" and uid != row["author_id"] and (not viewer or viewer["role"] != "admin"):
         db.close(); return jsonify(error="菜谱不存在"), 404
     db.execute("UPDATE recipes SET views_count=views_count+1 WHERE id=?", (recipe_id,)); db.commit()
     data = recipe_detail(db, recipe_id, uid)
@@ -140,11 +189,14 @@ def create_recipe():
     data = form_data()
     title = str(data.get("title", "")).strip()
     if not title or len(title) > 120: return jsonify(error="菜谱名称不能为空且不能超过 120 个字符"), 400
+    cuisine = str(data.get("cuisine", "")).strip()
+    if cuisine not in CUISINES: return jsonify(error="请选择有效的菜系"), 400
     db = connect(current_app.config["DATABASE_PATH"])
+    category = db.execute("SELECT id FROM categories WHERE slug=?", (CUISINES[cuisine],)).fetchone()
     status = "draft" if data.get("status") == "draft" else "pending"
     now = now_iso()
-    cur = db.execute("""INSERT INTO recipes(title,description,cover_image,author_id,cuisine,meal_type,category_id,prep_time,cook_time,servings,status,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""", (title, str(data.get("description", "")), data.get("cover_image"), uid, str(data.get("cuisine", "")), str(data.get("meal_type", "")), data.get("category_id") or None, 0, 0, float(data.get("servings", 2) or 2), status, now, now))
+    cur = db.execute("""INSERT INTO recipes(title,description,cover_image,author_id,cuisine,category_id,prep_time,cook_time,servings,status,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (title, str(data.get("description", "")), data.get("cover_image"), uid, cuisine, category["id"] if category else None, 0, 0, 1, status, now, now))
     replace_relations(db, cur.lastrowid, data); db.commit(); item = recipe_detail(db, cur.lastrowid, uid); db.close()
     return jsonify(data=item), 201
 
@@ -159,9 +211,15 @@ def update_recipe(recipe_id):
     if row["author_id"] != uid and user["role"] != "admin": db.close(); return jsonify(error="没有权限"), 403
     raw_json = request.get_json(silent=True) if not (request.mimetype and request.mimetype.startswith("multipart/")) else None
     if raw_json and set(raw_json).issubset({"status"}) and raw_json.get("status") in {"draft", "pending", "published", "rejected"}:
-        db.execute("UPDATE recipes SET status=?,updated_at=? WHERE id=?", (raw_json["status"], now_iso(), recipe_id)); db.commit(); item = recipe_detail(db, recipe_id, uid); db.close(); return jsonify(data=item)
+        requested_status = raw_json["status"]
+        if user["role"] != "admin":
+            requested_status = "draft" if requested_status == "draft" else "pending"
+        db.execute("UPDATE recipes SET status=?,updated_at=? WHERE id=?", (requested_status, now_iso(), recipe_id)); db.commit(); item = recipe_detail(db, recipe_id, uid); db.close(); return jsonify(data=item)
     data = form_data(); now = now_iso(); status = "draft" if data.get("status") == "draft" else ("pending" if user["role"] != "admin" else data.get("status", row["status"]))
-    db.execute("""UPDATE recipes SET title=?,description=?,cover_image=COALESCE(?,cover_image),cuisine=?,meal_type=?,category_id=?,prep_time=?,cook_time=?,servings=?,status=?,updated_at=? WHERE id=?""", (str(data.get("title", row["title"])).strip(), str(data.get("description", row["description"])), data.get("cover_image"), str(data.get("cuisine", row["cuisine"])), str(data.get("meal_type", row["meal_type"])), data.get("category_id") or None, 0, 0, float(data.get("servings", row["servings"]) or 2), status, now, recipe_id))
+    cuisine = str(data.get("cuisine", row["cuisine"])).strip()
+    if cuisine not in CUISINES: db.close(); return jsonify(error="请选择有效的菜系"), 400
+    category = db.execute("SELECT id FROM categories WHERE slug=?", (CUISINES[cuisine],)).fetchone()
+    db.execute("""UPDATE recipes SET title=?,description=?,cover_image=COALESCE(?,cover_image),cuisine=?,category_id=?,prep_time=?,cook_time=?,servings=?,status=?,updated_at=? WHERE id=?""", (str(data.get("title", row["title"])).strip(), str(data.get("description", row["description"])), data.get("cover_image"), cuisine, category["id"] if category else None, 0, 0, 1, status, now, recipe_id))
     replace_relations(db, recipe_id, data); db.commit(); item = recipe_detail(db, recipe_id, uid); db.close(); return jsonify(data=item)
 
 
@@ -179,7 +237,9 @@ def delete_recipe(recipe_id):
 def favorite(recipe_id):
     uid, error = require_user()
     if error: return error
-    db = connect(current_app.config["DATABASE_PATH"]); exists = db.execute("SELECT 1 FROM favorites WHERE user_id=? AND recipe_id=?", (uid, recipe_id)).fetchone()
+    db = connect(current_app.config["DATABASE_PATH"])
+    if not db.execute("SELECT 1 FROM recipes WHERE id=? AND status='published'", (recipe_id,)).fetchone(): db.close(); return jsonify(error="菜谱不存在"), 404
+    exists = db.execute("SELECT 1 FROM favorites WHERE user_id=? AND recipe_id=?", (uid, recipe_id)).fetchone()
     if exists or request.method == "DELETE":
         db.execute("DELETE FROM favorites WHERE user_id=? AND recipe_id=?", (uid, recipe_id)); active = False
     else:
@@ -191,7 +251,9 @@ def favorite(recipe_id):
 def like(recipe_id):
     uid, error = require_user()
     if error: return error
-    db = connect(current_app.config["DATABASE_PATH"]); exists = db.execute("SELECT 1 FROM likes WHERE user_id=? AND recipe_id=?", (uid, recipe_id)).fetchone()
+    db = connect(current_app.config["DATABASE_PATH"])
+    if not db.execute("SELECT 1 FROM recipes WHERE id=? AND status='published'", (recipe_id,)).fetchone(): db.close(); return jsonify(error="菜谱不存在"), 404
+    exists = db.execute("SELECT 1 FROM likes WHERE user_id=? AND recipe_id=?", (uid, recipe_id)).fetchone()
     if exists or request.method == "DELETE":
         db.execute("DELETE FROM likes WHERE user_id=? AND recipe_id=?", (uid, recipe_id)); active = False
     else:
@@ -210,7 +272,19 @@ def add_comment(recipe_id):
     if error: return error
     content = str((request.get_json(silent=True) or {}).get("content", "")).strip()
     if not content or len(content) > 500: return jsonify(error="评论不能为空且不能超过 500 个字符"), 400
-    db = connect(current_app.config["DATABASE_PATH"]); db.execute("INSERT INTO comments(user_id,recipe_id,content,created_at) VALUES (?,?,?,?)", (uid, recipe_id, content, now_iso())); db.commit(); db.close(); return jsonify(message="评论已发布"), 201
+    db = connect(current_app.config["DATABASE_PATH"])
+    if not db.execute("SELECT 1 FROM recipes WHERE id=? AND status='published'", (recipe_id,)).fetchone(): db.close(); return jsonify(error="菜谱不存在"), 404
+    blocked = find_blocked_content(content, current_app.config)
+    if blocked:
+        db.execute("""INSERT INTO comment_moderation_events
+            (user_id,recipe_id,reason_code,rule_hash,created_at) VALUES (?,?,?,?,?)""",
+            (uid, recipe_id, blocked["category"], blocked["rule_hash"], now_iso()))
+        db.commit(); db.close()
+        return jsonify(
+            error="评论包含不允许发布的内容，请修改后重试",
+            code="content_blocked"
+        ), 422
+    db.execute("INSERT INTO comments(user_id,recipe_id,content,created_at) VALUES (?,?,?,?)", (uid, recipe_id, content, now_iso())); db.commit(); db.close(); return jsonify(message="评论已发布"), 201
 
 
 @bp.delete("/comments/<int:comment_id>")
@@ -228,6 +302,7 @@ def like_comment(comment_id):
     uid, error = require_user()
     if error: return error
     db = connect(current_app.config["DATABASE_PATH"])
+    if not db.execute("SELECT 1 FROM comments WHERE id=?", (comment_id,)).fetchone(): db.close(); return jsonify(error="评论不存在"), 404
     exists = db.execute("SELECT 1 FROM comment_likes WHERE user_id=? AND comment_id=?", (uid, comment_id)).fetchone()
     if exists or request.method == "DELETE":
         db.execute("DELETE FROM comment_likes WHERE user_id=? AND comment_id=?", (uid, comment_id)); active = False
