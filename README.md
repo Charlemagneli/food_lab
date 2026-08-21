@@ -15,6 +15,8 @@
 - 菜谱默认按一人份展示，读者可自行调整食材份量；支持分步烹饪和复制链接
 - 响应式布局、移动端导航和明暗主题
 - “编辑精选”菜谱徽标
+- 首页主视觉可由管理员从已发布的编辑精选菜谱中选择封面，并链接到对应详情页
+- 独立的首页主视觉选择界面展示候选菜谱封面、浏览量、点赞量和评论量
 
 ### 用户与互动
 
@@ -156,6 +158,9 @@ python -m unittest discover -v
 - 个人资料和密码修改
 - 管理员权限与基础数据保护
 - 默认测试账号登录
+- 系统消息、审核通过/驳回通知与防重复发送
+- 评论屏蔽词、规避字符识别和处置记录
+- 上传图片公开路径回归测试
 
 ## Docker 启动
 
@@ -165,7 +170,9 @@ python -m unittest discover -v
 cp .env.example .env
 ```
 
-至少修改 `.env` 中的 `SECRET_KEY`。可以使用以下命令生成随机值：
+开发机可以继续使用默认配置进行体验；准备上线时请把 `.env` 改为生产值：`APP_ENV=production`、`SEED_DEMO_DATA=0`、`SESSION_COOKIE_SECURE=1`，并设置至少 32 个字符的随机 `SECRET_KEY`。不要复用仓库中的开发账号密码。
+
+可以使用以下命令生成随机密钥：
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(48))"
@@ -179,7 +186,19 @@ DATABASE_PATH=/app/instance/foodlab.sqlite3
 UPLOAD_FOLDER=/app/frontend/images/uploads
 SESSION_COOKIE_SECURE=0
 FLASK_DEBUG=0
+APP_ENV=production
+SEED_DEMO_DATA=0
+HTTP_BIND=127.0.0.1
+HTTP_PORT=8080
 ```
+
+生产模式不会自动创建管理员。容器启动后，在项目目录执行下面的交互式命令，密码只在终端输入，不会出现在命令参数或 Git 中：
+
+```bash
+docker compose exec api flask --app backend.app create-admin
+```
+
+如果使用外部 HTTPS 反向代理，保持 Compose 的 `HTTP_BIND=127.0.0.1`，由外部 Nginx/Caddy 终止 TLS 后转发到 `127.0.0.1:8080`。只有在明确需要局域网或公网直接访问本机 Nginx 时，才调整 `HTTP_BIND`。
 
 ### 2. 构建并启动
 
@@ -188,7 +207,7 @@ docker compose up --build -d
 docker compose ps
 ```
 
-访问 <http://127.0.0.1/>。Nginx 提供前端静态文件，并将 `/api/` 和 `/uploads/` 请求代理到 Flask。
+默认访问 <http://127.0.0.1:8080/>。Nginx 提供前端静态文件，并将 `/api/`、`/images/uploads/` 和兼容旧路径 `/uploads/` 请求代理到 Flask。默认仅监听本机，准备接入公网反向代理时再将 `HTTP_BIND` 改为服务器需要的监听地址。
 
 查看日志：
 
@@ -215,8 +234,12 @@ SQLite 数据和上传目录使用 Docker 命名卷。普通的 `docker compose 
 | `CONTENT_FILTER_EXTRA_WORDS` | 空 | 以英文逗号分隔的额外评论屏蔽短语 |
 | `SESSION_COOKIE_SECURE` | `0` | HTTPS 环境设为 `1` |
 | `FLASK_DEBUG` | `0` | 本地调试开关 |
+| `HTTP_BIND` | `127.0.0.1` | Nginx 暴露地址；默认仅允许本机访问 |
+| `HTTP_PORT` | `8080` | Nginx 暴露端口 |
 
 `.env` 已被 Git 忽略，请勿提交真实密码、密钥或生产环境配置。
+
+上传文件由 Flask 从 `UPLOAD_FOLDER` 提供，Nginx 会将 `/images/uploads/` 转发到 Flask；Docker 中该目录使用独立命名卷，因此容器重启不会丢失头像和菜谱图片。
 
 ## API 概览
 
@@ -243,6 +266,8 @@ SQLite 数据和上传目录使用 Docker 命名卷。普通的 `docker compose 
 | `GET /api/messages/unread-count` | 系统消息未读数 |
 | `PATCH /api/messages/read` | 将系统消息标记为已读 |
 | `GET /api/admin/recipes` | 管理员菜谱列表 |
+| `GET /api/admin/homepage-featured` | 获取首页主视觉候选菜谱 |
+| `PATCH /api/admin/homepage-featured` | 设置首页主视觉菜谱（仅限已发布且有封面的编辑精选） |
 | `PATCH /api/admin/recipes/:id` | 审核或设置编辑精选 |
 | `PATCH /api/admin/recipes/:id/featured` | 独立设置或取消编辑精选 |
 | `DELETE /api/admin/recipes/:id` | 管理员永久删除菜谱 |
@@ -283,6 +308,8 @@ SQLite 数据和上传目录使用 Docker 命名卷。普通的 `docker compose 
 - HTTPS 启用后设置 `SESSION_COOKIE_SECURE=1`
 - 限制数据库、上传目录和 `.env` 的文件权限
 - 配置数据库与上传文件备份
+- 首次生产启动后执行 `docker compose exec api flask --app backend.app create-admin`
+- 确认 `APP_ENV=production`、`SEED_DEMO_DATA=0`、`SESSION_COOKIE_SECURE=1` 已生效
 - 检查 8 MB 上传限制是否符合生产需求
 - 不要把 `.env`、SQLite 数据库或用户上传文件提交到 Git
 
@@ -313,8 +340,8 @@ test: cover administrator permissions
 - 阶段 2：用户与个人空间——已完成基础版本
 - 阶段 3：社区互动——已完成基础版本
 - 阶段 4：菜谱创作工作流——已完成基础版本
-- 阶段 5：管理员后台——菜谱审核与编辑精选已完成，其余管理界面待完善
-- 阶段 6：测试与部署——已有自动化测试和 Docker 基础配置，生产部署验收待完成
+- 阶段 5：管理员后台——菜谱审核、编辑精选、用户管理和评论管理已完成基础版本
+- 阶段 6：测试与部署——API 自动化测试、健康检查、Docker/Nginx 配置及上传卷访问路径已完成；仍需在安装 Docker Compose 的目标 Linux 环境完成容器启动、重启持久化和 HTTPS 验收
 
 ## License
 

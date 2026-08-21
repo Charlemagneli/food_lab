@@ -102,6 +102,28 @@ def health():
     return jsonify(status="ok", service="foodlab-api")
 
 
+@bp.get("/homepage-featured")
+def homepage_featured():
+    db = connect(current_app.config["DATABASE_PATH"])
+    setting = db.execute("SELECT value FROM site_settings WHERE key='homepage_featured_recipe_id'").fetchone()
+    preferred_id = int(setting["value"]) if setting and setting["value"].isdigit() else -1
+    row = db.execute("""SELECT r.id,r.title,r.description,r.cover_image,r.cuisine,
+        u.username AS author_name,u.avatar_url AS author_avatar,NULL AS category_name,'[]' AS tag_list
+        FROM recipes r JOIN users u ON u.id=r.author_id
+        WHERE r.id=? AND r.status='published' AND r.is_featured=1
+          AND r.cover_image IS NOT NULL AND trim(r.cover_image)<>''""", (preferred_id,)).fetchone()
+    if not row:
+        row = db.execute("""SELECT r.id,r.title,r.description,r.cover_image,r.cuisine,
+            u.username AS author_name,u.avatar_url AS author_avatar,NULL AS category_name,'[]' AS tag_list
+            FROM recipes r JOIN users u ON u.id=r.author_id
+            WHERE r.status='published' AND r.is_featured=1
+              AND r.cover_image IS NOT NULL AND trim(r.cover_image)<>''
+            ORDER BY r.updated_at DESC LIMIT 1""").fetchone()
+    result = recipe_summary(row) if row else None
+    db.close()
+    return jsonify(data=result)
+
+
 @bp.get("/categories")
 def categories():
     db = connect(current_app.config["DATABASE_PATH"])

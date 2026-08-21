@@ -17,6 +17,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const labels = { users: '用户', recipes: '菜谱', pending: '待审核', featured: '编辑精选' };
     document.querySelector('#admin-stats').innerHTML = Object.entries(labels).map(([key, label]) => `<div class="panel"><span class="muted">${label}</span><strong>${result.data[key] || 0}</strong></div>`).join('');
   };
+  const loadHomepageFeatured = async () => {
+    const result = await FoodLab.api('/api/admin/homepage-featured');
+    const preview = document.querySelector('#homepage-featured-preview');
+    const selected = result.items.find(item => String(item.id) === String(result.selected_id));
+    preview.innerHTML = selected ? `<img src="${FoodLab.escape(selected.cover_image)}" alt="${FoodLab.escape(selected.title)}"><span><b>${FoodLab.escape(selected.title)}</b><small>当前展示</small></span>` : '<span>尚未设置主视觉图片</span>';
+  };
   const loadRecipes = async status => {
     currentStatus = status;
     list.innerHTML = '<div class="admin-loading">正在加载菜谱……</div>';
@@ -68,7 +74,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       location.href = FoodLab.user ? '/' : '/login.html';
       return;
     }
-    await Promise.all([loadStats(), loadRecipes(currentStatus), loadManagement()]);
+    await Promise.all([loadStats(), loadRecipes(currentStatus), loadManagement(), loadHomepageFeatured()]);
     document.querySelectorAll('[data-status]').forEach(tab => {
       tab.onclick = async () => {
         document.querySelectorAll('[data-status]').forEach(item => item.classList.remove('active'));

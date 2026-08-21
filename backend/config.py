@@ -5,6 +5,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 class Config:
+    APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
     SECRET_KEY = os.getenv("SECRET_KEY", "foodlab-development-change-me")
     DATABASE_PATH = os.getenv("DATABASE_PATH", str(BASE_DIR / "instance" / "foodlab.sqlite3"))
     UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", str(BASE_DIR / "frontend" / "images" / "uploads"))
@@ -16,3 +17,4 @@ class Config:
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "0") == "1"
+    SEED_DEMO_DATA = os.getenv("SEED_DEMO_DATA", "1") == "1"

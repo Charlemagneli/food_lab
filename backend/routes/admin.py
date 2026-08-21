@@ -47,6 +47,49 @@ def pending_recipes():
     return jsonify(items=rows)
 
 
+@bp.get("/homepage-featured")
+def homepage_featured_settings():
+    _, error = guard()
+    if error: return error
+    db = connect(current_app.config["DATABASE_PATH"])
+    setting = db.execute("SELECT value FROM site_settings WHERE key='homepage_featured_recipe_id'").fetchone()
+    selected_id = int(setting["value"]) if setting and setting["value"].isdigit() else None
+    candidates = [dict(row) for row in db.execute("""SELECT r.id,r.title,r.description,r.cover_image,
+        r.cuisine,r.views_count,r.likes_count,u.username AS author,
+        (SELECT count(*) FROM comments c WHERE c.recipe_id=r.id) AS comments_count
+        FROM recipes r JOIN users u ON u.id=r.author_id
+        WHERE r.status='published' AND r.is_featured=1
+          AND r.cover_image IS NOT NULL AND trim(r.cover_image)<>''
+        ORDER BY r.updated_at DESC""").fetchall()]
+    db.close()
+    return jsonify(selected_id=selected_id, items=candidates)
+
+
+@bp.patch("/homepage-featured")
+def update_homepage_featured():
+    admin_id, error = guard()
+    if error: return error
+    payload = request.get_json(silent=True) or {}
+    try:
+        recipe_id = int(payload.get("recipe_id"))
+    except (TypeError, ValueError):
+        return jsonify(error="请选择首页展示菜谱"), 400
+    db = connect(current_app.config["DATABASE_PATH"])
+    recipe = db.execute("""SELECT id,title,cover_image FROM recipes
+        WHERE id=? AND status='published' AND is_featured=1""", (recipe_id,)).fetchone()
+    if not recipe:
+        db.close(); return jsonify(error="首页图片只能选择已发布的编辑精选菜谱"), 400
+    if not str(recipe["cover_image"] or "").strip():
+        db.close(); return jsonify(error="该精选菜谱还没有封面图片"), 400
+    db.execute("""INSERT INTO site_settings(key,value,updated_at,updated_by)
+        VALUES ('homepage_featured_recipe_id',?,?,?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value,
+        updated_at=excluded.updated_at,updated_by=excluded.updated_by""",
+        (str(recipe_id), now_iso(), admin_id))
+    db.commit(); db.close()
+    return jsonify(message="首页主视觉已更新", recipe_id=recipe_id, title=recipe["title"], cover_image=recipe["cover_image"])
+
+
 @bp.patch("/recipes/<int:recipe_id>")
 def moderate_recipe(recipe_id):
     admin_id, error = guard()

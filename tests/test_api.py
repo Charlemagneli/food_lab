@@ -124,6 +124,9 @@ class TestFoodLabAPI(unittest.TestCase):
         self.assertEqual(avatar.status_code, 200)
         self.assertTrue(avatar.get_json()["avatar_url"].startswith("/images/uploads/avatar-"))
         avatar_url = avatar.get_json()["avatar_url"]
+        asset_response = self.client.get(avatar_url)
+        self.assertEqual(asset_response.status_code, 200)
+        asset_response.close()
         preserved = self.client.patch("/api/users/me", json={"username": "new-name", "bio": "更新简介", "interests": ["烘焙"]}, headers=headers)
         self.assertEqual(preserved.status_code, 200)
         self.assertEqual(preserved.get_json()["user"]["avatar_url"], avatar_url)
@@ -146,6 +149,20 @@ class TestFoodLabAPI(unittest.TestCase):
         headers = {"X-CSRF-Token": self.csrf()}
         self.assertEqual(self.client.get("/api/admin/stats").status_code, 200)
         self.assertEqual(self.client.get("/api/admin/users").status_code, 200)
+        db = connect(self.app.config["DATABASE_PATH"])
+        db.execute("UPDATE recipes SET cover_image='/images/uploads/featured-test.jpg' WHERE id=1")
+        db.commit(); db.close()
+        homepage_options = self.client.get("/api/admin/homepage-featured")
+        self.assertEqual(homepage_options.status_code, 200)
+        self.assertTrue(any(item["id"] == 1 for item in homepage_options.get_json()["items"]))
+        homepage_candidate = next(item for item in homepage_options.get_json()["items"] if item["id"] == 1)
+        self.assertIn("views_count", homepage_candidate)
+        self.assertIn("likes_count", homepage_candidate)
+        self.assertIn("comments_count", homepage_candidate)
+        homepage_saved = self.client.patch("/api/admin/homepage-featured", json={"recipe_id": 1}, headers=headers)
+        self.assertEqual(homepage_saved.status_code, 200)
+        self.assertEqual(self.client.get("/api/homepage-featured").get_json()["data"]["id"], 1)
+        self.assertEqual(self.client.patch("/api/admin/homepage-featured", json={"recipe_id": 2}, headers=headers).status_code, 400)
         self.assertEqual(self.client.patch("/api/admin/recipes/1", json={"status": "hidden"}, headers=headers).status_code, 400)
         hidden = self.client.patch("/api/admin/recipes/1", json={"status": "hidden", "reason": "内容需要复核"}, headers=headers)
         self.assertEqual(hidden.status_code, 200)
@@ -174,6 +191,45 @@ class TestFoodLabAPI(unittest.TestCase):
         response = self.client.post("/api/auth/login", json={"identity": "user@foodlab.local", "password": "FoodLab-user-123"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["role"], "user")
+
+    def test_production_configuration_and_admin_bootstrap(self):
+        base = Path(self.tmp.name)
+
+        class InsecureProductionConfig:
+            APP_ENV = "production"
+            SECRET_KEY = "replace-with-a-long-random-value"
+            DATABASE_PATH = str(base / "insecure.sqlite3")
+            UPLOAD_FOLDER = str(base / "insecure-uploads")
+            SESSION_COOKIE_SECURE = False
+            SEED_DEMO_DATA = True
+
+        with self.assertRaises(RuntimeError):
+            create_app(InsecureProductionConfig)
+
+        class ProductionConfig:
+            APP_ENV = "production"
+            SECRET_KEY = "a-secure-production-secret-with-more-than-32-characters"
+            DATABASE_PATH = str(base / "production.sqlite3")
+            UPLOAD_FOLDER = str(base / "production-uploads")
+            SESSION_COOKIE_HTTPONLY = True
+            SESSION_COOKIE_SAMESITE = "Lax"
+            SESSION_COOKIE_SECURE = True
+            SEED_DEMO_DATA = False
+
+        production_app = create_app(ProductionConfig)
+        db = connect(ProductionConfig.DATABASE_PATH)
+        self.assertEqual(db.execute("SELECT count(*) FROM users").fetchone()[0], 0)
+        db.close()
+        result = production_app.test_cli_runner().invoke(
+            args=["create-admin"],
+            input="Production Admin\nadmin@example.com\nvery-secure-password\nvery-secure-password\n",
+        )
+        self.assertEqual(result.exit_code, 0, result.output)
+        db = connect(ProductionConfig.DATABASE_PATH)
+        admin = db.execute("SELECT username,role FROM users").fetchone()
+        db.close()
+        self.assertEqual(admin["username"], "Production Admin")
+        self.assertEqual(admin["role"], "admin")
 
     def test_system_messages(self):
         self.assertEqual(self.client.get("/api/messages").status_code, 401)

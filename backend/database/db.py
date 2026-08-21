@@ -92,6 +92,10 @@ CREATE TABLE IF NOT EXISTS comment_moderation_events (
  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL,
  FOREIGN KEY(recipe_id) REFERENCES recipes(id) ON DELETE SET NULL
 );
+CREATE TABLE IF NOT EXISTS site_settings (
+ key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL,
+ updated_by INTEGER, FOREIGN KEY(updated_by) REFERENCES users(id) ON DELETE SET NULL
+);
 """
 
 
@@ -109,7 +113,7 @@ def connect(path):
     return db
 
 
-def init_db(path):
+def init_db(path, seed_demo=True):
     db = connect(path)
     db.executescript(SCHEMA)
     columns = {row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()}
@@ -124,12 +128,12 @@ def init_db(path):
         db.execute("ALTER TABLE recipes ADD COLUMN reviewed_by INTEGER")
     if "rejection_reason" not in recipe_columns:
         db.execute("ALTER TABLE recipes ADD COLUMN rejection_reason TEXT NOT NULL DEFAULT ''")
-    seed(db)
+    seed(db, demo=seed_demo)
     db.commit()
     db.close()
 
 
-def seed(db):
+def seed(db, demo=True):
     categories = [
         ("中餐", "chinese"), ("西餐", "western"), ("日料", "japanese"),
         ("韩餐", "korean"), ("东南亚", "southeast-asian"), ("甜品", "dessert"),
@@ -137,6 +141,8 @@ def seed(db):
         ("主食", "staple"), ("小吃", "snack")
     ]
     db.executemany("INSERT OR IGNORE INTO categories(name, slug) VALUES (?, ?)", categories)
+    if not demo:
+        return
     from werkzeug.security import generate_password_hash
     admin_hash = generate_password_hash("FoodLab-admin-123")
     db.execute("INSERT OR IGNORE INTO users(username,email,password_hash,bio,role,created_at) VALUES (?,?,?,?,?,?)",
